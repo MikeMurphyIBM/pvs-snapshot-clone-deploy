@@ -11,7 +11,7 @@ PVS_CRN="crn:v1:bluemix:public:power-iaas:dal10:a/21d74dd4fe814dfca20570bbb93cdb
 CLOUD_INSTANCE_ID="cc84ef2f-babc-439f-8594-571ecfcbe57a" # PowerVS Workspace ID
 LPAR_NAME="empty-ibmi-lpar"            # Name of the target LPAR: "empty-ibmi-lpar"
 REGION="us-south"
-PRIMARY_LPAR="LPAR_PRIMARY"
+PRIMARY_LPAR="get-snapshot"
 
 
 # Storage Tier. Must match the storage tier of the original volumes in the snapshot.
@@ -82,14 +82,55 @@ SNAPSHOT_NAME="TMP_SNAP_$(date +"%Y%m%d%H%M")"
 echo "--- Step 1: Initiating Snapshot on LPAR: $PRIMARY_LPAR ---"
 echo "Generated Snapshot Name: $SNAPSHOT_NAME"
 
-# --- Execute Snapshot Operation ---
-ibmcloud pi instance snapshot create "$PRIMARY_LPAR" --name "$SNAPSHOT_NAME"
+# --- Step 1: Execute Snapshot Operation and Capture ID ---
+echo "Creating Snapshot: $SNAPSHOT_NAME on LPAR: $PRIMARY_LPAR"
+# Note: The command output must be captured in JSON format to extract the Snapshot ID.
+SNAPSHOT_JSON_OUTPUT=$(ibmcloud pi instance snapshot create "$PRIMARY_LPAR" --name "$SNAPSHOT_NAME" --json) || { 
+    echo "Error initiating snapshot." 
+    exit 1 
+}
 
-echo "--- Step 2: Waiting 10 Minutes for Snapshot Creation to Complete ---"
-# Snapshot creation is an asynchronous process (a job) and takes time to reach 'Available' status
-sleep 10m
+# Use 'jq' to extract the unique Snapshot ID (assuming jq is installed)
+# The output contains the unique ID required for subsequent 'get' commands.
+SNAPSHOT_ID=$(echo "$SNAPSHOT_JSON_OUTPUT" | jq -r '.snapshotID')
+echo "Snapshot initiated successfully. ID: $SNAPSHOT_ID"
 
-echo "--- Step 3: Snapshot Progress Check Point ---"
+# --- Step 2: Polling Loop (Check every 90 seconds) ---
+
+POLL_INTERVAL=90
+EXPECTED_STATUS="Available"
+ERROR_STATUS="Error"
+CURRENT_STATUS=""
+
+echo "--- Polling started: Checking snapshot status every ${POLL_INTERVAL} seconds ---"
+
+while [[ "$CURRENT_STATUS" != "$EXPECTED_STATUS" ]]; do
+    
+    # Use the 'get' command to retrieve the current status of the specific snapshot [2, 3]
+    # We retrieve the status using the captured Snapshot ID
+    STATUS_JSON=$(ibmcloud pi instance snapshot get "$SNAPSHOT_ID" --json 2>/dev/null)
+    
+    # Extract the status field using jq
+    CURRENT_STATUS=$(echo "$STATUS_JSON" | jq -r '.status')
+
+    if [[ "$CURRENT_STATUS" == "$EXPECTED_STATUS" ]]; then
+        echo "SUCCESS: Snapshot is now $CURRENT_STATUS."
+        break
+
+    elif [[ "$CURRENT_STATUS" == "$ERROR_STATUS" ]]; then
+        # The snapshot status can become "Error" [1, 5]
+        echo "FATAL ERROR: Snapshot failed. Status: $CURRENT_STATUS. Exiting script."
+        exit 1
+
+    else
+        # Report current status and wait. Other possible statuses include 'Creating', 'Restoring', etc. [1]
+        echo "Snapshot status: $CURRENT_STATUS. Waiting ${POLL_INTERVAL} seconds..."
+        sleep $POLL_INTERVAL
+    fi
+done
+
+echo "--- Step 3: Snapshot is available for use ---"
+
 
 
 # =============================================================
