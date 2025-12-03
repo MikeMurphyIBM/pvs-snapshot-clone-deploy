@@ -96,34 +96,38 @@ SNAPSHOT_ID=$(echo "$SNAPSHOT_JSON_OUTPUT" | jq -r '.snapshotID')
 echo "Snapshot initiated successfully. ID: $SNAPSHOT_ID"
 
 # --- Step 2: Polling Loop (Check every 90 seconds) ---
-
 POLL_INTERVAL=90
-EXPECTED_STATUS="Available"
-ERROR_STATUS="Error"
+EXPECTED_STATUS="AVAILABLE"  # Standardized to uppercase for robust comparison
+ERROR_STATUS="ERROR"
 CURRENT_STATUS=""
 
 echo "--- Polling started: Checking snapshot status every ${POLL_INTERVAL} seconds ---"
 
-while [[ "$CURRENT_STATUS" != "$EXPECTED_STATUS" ]]; do
+while true; do
     
-    # Use the 'get' command to retrieve the current status of the specific snapshot [2, 3]
-    # We retrieve the status using the captured Snapshot ID
+    # Get the status using the captured Snapshot ID
     STATUS_JSON=$(ibmcloud pi instance snapshot get "$SNAPSHOT_ID" --json 2>/dev/null)
     
-    # Extract the status field using jq
-    CURRENT_STATUS=$(echo "$STATUS_JSON" | jq -r '.status')
+    # 1. Extract status using jq
+    # 2. Convert status to uppercase (tr '[:lower:]' '[:upper:]')
+    # 3. Trim whitespace/periods (tr -d '[:space:].')
+    CURRENT_STATUS=$(echo "$STATUS_JSON" | jq -r '.status' | tr '[:lower:]' '[:upper:]' | tr -d '[:space:].')
 
     if [[ "$CURRENT_STATUS" == "$EXPECTED_STATUS" ]]; then
-        echo "SUCCESS: Snapshot is now $CURRENT_STATUS."
-        break
-
+        echo "SUCCESS: Snapshot is now $CURRENT_STATUS. Proceeding to next step."
+        break  # Exit the while loop
+        
     elif [[ "$CURRENT_STATUS" == "$ERROR_STATUS" ]]; then
-        # The snapshot status can become "Error" [1, 5]
+        # The snapshot status can become "Error" [1]
         echo "FATAL ERROR: Snapshot failed. Status: $CURRENT_STATUS. Exiting script."
         exit 1
-
+        
+    elif [[ -z "$CURRENT_STATUS" || "$CURRENT_STATUS" == "NULL" ]]; then
+        # Handle cases where status extraction fails temporarily
+        echo "Warning: Status unavailable. Waiting ${POLL_INTERVAL} seconds..."
+        
     else
-        # Report current status and wait. Other possible statuses include 'Creating', 'Restoring', etc. [1]
+        # Status is still in a transitional state (e.g., ADDING_VOLUMES_TO_GROUP, RESTORING) [1]
         echo "Snapshot status: $CURRENT_STATUS. Waiting ${POLL_INTERVAL} seconds..."
         sleep $POLL_INTERVAL
     fi
