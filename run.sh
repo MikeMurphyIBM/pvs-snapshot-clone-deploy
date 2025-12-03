@@ -10,6 +10,7 @@ API_KEY="${IBMCLOUD_API_KEY}"       # IAM API Key stored in Code Engine Secret
 PVS_CRN="${crn:v1:bluemix:public:power-iaas:dal10:a/21d74dd4fe814dfca20570bbb93cdbff:cc84ef2f-babc-439f-8594-571ecfcbe57a::}" # Full PowerVS Workspace CRN
 CLOUD_INSTANCE_ID="${cc84ef2f-babc-439f-8594-571ecfcbe57a}" # PowerVS Workspace ID
 LPAR_NAME="${empty-ibmi-lpar}"            # Name of the target LPAR: "empty-ibmi-lpar"
+REGION="us-south"
 
 # Storage Tier. Must match the storage tier of the original volumes in the snapshot.
 STORAGE_TIER="tier3"
@@ -24,7 +25,7 @@ CLONE_NAME_PREFIX="CLONE-RESTORE-$(date +%Y%m%d%H%M%S)"
 echo "--- Logging into IBM Cloud and Targeting PowerVS Workspace ---"
 
 # Log in using the API key
-ibmcloud login --apikey $API_KEY || { echo "ERROR: IBM Cloud login failed."; exit 1; }
+ibmcloud login --apikey $API_KEY -r $REGION || { echo "ERROR: IBM Cloud login failed."; exit 1; }
 
 #Target the Default Resource Group
 # You would use the name or ID of the Default resource group here.
