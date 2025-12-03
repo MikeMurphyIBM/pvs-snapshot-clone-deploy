@@ -130,7 +130,7 @@ echo "Source Volume IDs found: $SOURCE_VOLUME_IDS"
 # STEP 5: Create Volume Clones from the Discovered Source Volumes
 # =============================================================
 
-cho "--- Step 5: Initiating volume cloning of all source volumes ---"
+echo "--- Step 5: Initiating volume cloning of all source volumes ---"
 
 # --- DEBUGGING START ---
 # Action: Enable verbose tracing to see the exact command executed and its error output (stderr).
