@@ -235,22 +235,6 @@ LPAR_NAME="empty-ibmi-lpar" # Assuming this variable holds the target name
 
 echo "--- Step 6: Attaching cloned volumes to $LPAR_NAME ---"
 
-# Action: Check LPAR existence and capture its status.
-# We use the status retrieval command implicitly to check if the instance is visible in the API.
-# Any error (like 404 Not Found) will be caught by checking the STATUS variable content.
-STATUS=$(ibmcloud pi instance get "$LPAR_NAME" --json 2>/dev/null | jq -r '.status')
-
-if [ -z "$STATUS" ] || [ "$STATUS" == "null" ]; then
-    echo "CRITICAL ERROR: Target LPAR '$LPAR_NAME' was NOT FOUND by the API. Cannot proceed with volume attachment."
-    # If the LPAR is missing, the script cannot proceed.
-    exit 1
-fi
-
-# The LPAR status is assumed to be SHUTOFF because it was provisioned as an empty VM
-# (Deployment type: VMNoStorage) and cannot start without a boot volume.
-echo "LPAR '$LPAR_NAME' found with status: $STATUS. Assuming SHUTOFF state for attachment."
-
-
 # Action: Attach the Load Source (Boot) volume using the --boot-volume flag.
 # We build a single command line for all attachments.
 ATTACH_CMD="ibmcloud pi instance volume attach $LPAR_NAME --boot-volume $CLONE_BOOT_ID"
