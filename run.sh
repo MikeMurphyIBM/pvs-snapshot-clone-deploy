@@ -24,7 +24,12 @@ CLONE_NAME_PREFIX="CLONE-RESTORE-$(date +%Y%m%d%H%M%S)"
 echo "--- Logging into IBM Cloud and Targeting PowerVS Workspace ---"
 
 # Log in using the API key
-ibmcloud login --apikey $API_KEY --no-account || { echo "ERROR: IBM Cloud login failed."; exit 1; }
+ibmcloud login --apikey $API_KEY || { echo "ERROR: IBM Cloud login failed."; exit 1; }
+
+#Target the Default Resource Group
+# You would use the name or ID of the Default resource group here.
+ibmcloud target -g Default || { echo "ERROR: Failed to target Default resource group."; exit 1; }
+
 
 # Target the specific PowerVS workspace using the provided CRN [3, 4].
 ibmcloud pi ws target $PVS_CRN || { echo "ERROR: Failed to target PowerVS workspace $PVS_CRN."; exit 1; }
