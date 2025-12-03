@@ -8,21 +8,19 @@ echo "=== IBM i Snapshot Restore and Boot Script ==="
 # 1. Environment Variables (Sourced from Preceding Deployment Script)
 # -------------------------
 
-API_KEY="${IBMCLOUD_API_KEY}"       # IAM API Key
-PVS_CRN="${PVS_CRN}"                # Full PowerVS Workspace CRN
-CLOUD_INSTANCE_ID="${CLOUD_INSTANCE_ID}" # PowerVS Workspace ID
-LPAR_NAME="${LPAR_NAME}"            # Name of the target LPAR: "empty-ibmi-lpar"
+API_KEY="${IBMCLOUD_API_KEY}"       # IAM API Key stored in Code Engine Secret
+PVS_CRN="${crn:v1:bluemix:public:power-iaas:dal10:a/21d74dd4fe814dfca20570bbb93cdbff:cc84ef2f-babc-439f-8594-571ecfcbe57a::}"                # Full PowerVS Workspace CRN
+CLOUD_INSTANCE_ID="${cc84ef2f-babc-439f-8594-571ecfcbe57a}" # PowerVS Workspace ID
+LPAR_NAME="${empty-ibmi-lpar}"            # Name of the target LPAR: "empty-ibmi-lpar"
 
 # -------------------------
 # 1B. Required Restore Variables (MUST BE UPDATED MANUALLY)
 # -------------------------
 
-# ID or Name of the source snapshot containing the volumes to be cloned.
-SOURCE_SNAPSHOT_ID="<ID_OR_NAME_OF_SOURCE_SNAPSHOT>" 
 
 # Storage Tier. Must match the storage tier of the original volumes in the snapshot.
 # Example values: tier0, tier1, tier3 [3, 4].
-STORAGE_TIER="tier1"
+STORAGE_TIER="tier3"
 
 # Unique prefix for the new cloned volumes
 CLONE_NAME_PREFIX="CLONE-RESTORE-$(date +%Y%m%d%H%M%S)"
@@ -45,7 +43,7 @@ echo "Successfully targeted workspace."
 # =============================================================
 # Helper Function for Waiting for Asynchronous Jobs
 # =============================================================
-# Cloning is an asynchronous operation, managed via a Job ID [7-10].
+# Cloning is an asynchronous operation, managed via a Job ID.
 
 function wait_for_job() {
     JOB_ID=$1
@@ -68,15 +66,43 @@ function wait_for_job() {
     done
 }
 
+# =============================================================
+# STEP 3: Dynamically Discover the Latest Snapshot ID
+# =============================================================
+echo "--- Step 3: Discovering the latest Snapshot ID for LPAR: $LPAR_NAME ---"
+
+# Command: List all snapshots associated with the LPAR in JSON format.
+SNAPSHOT_LIST_JSON=$(ibmcloud pi instance snapshot list $LPAR_NAME --json)
+
+if [ $? -ne 0 ] || [ -z "$SNAPSHOT_LIST_JSON" ]; then
+    echo "Error: Failed to retrieve snapshot list for LPAR $LPAR_NAME. Aborting."
+    exit 1
+fi
+
+# Action: Use 'jq' to parse the JSON list, sort the snapshots by their creationDate, 
+# select the very last entry (the latest one), and extract its unique snapshotID.
+# Note: Snapshots created via API/CLI include the unique identifier (SnapshotID) [2-5].
+LATEST_SNAPSHOT_ID=$(echo "$SNAPSHOT_LIST_JSON" | \
+    jq -r '.snapshots | sort_by(.creationDate) | last .snapshotID')
+
+if [ -z "$LATEST_SNAPSHOT_ID" ] || [ "$LATEST_SNAPSHOT_ID" = "null" ]; then
+    echo "Error: Could not find any snapshots for instance $LPAR_NAME. Aborting."
+    exit 1
+fi
+
+SOURCE_SNAPSHOT_ID="$LATEST_SNAPSHOT_ID"
+
+echo "Latest Snapshot ID found: $SOURCE_SNAPSHOT_ID"
+
 
 # =============================================================
-# STEP 3: Discover Source Volume IDs from the Snapshot
+# STEP 4: Discover Source Volume IDs from the Snapshot
 # =============================================================
 echo "--- Step 3: Discovering Source Volume IDs from Snapshot: $SOURCE_SNAPSHOT_ID ---"
 
 # Action: Retrieve the snapshot metadata in JSON format. The metadata contains the
-# 'volumeIDs' array, listing all volumes included in the snapshot [12, 13].
-# We use the instance snapshot command because snapshots are tied to VM instances [14, 15].
+# 'volumeIDs' array, listing all volumes included in the snapshot
+# We use the instance snapshot command because snapshots are tied to VM instances
 VOLUME_IDS_JSON=$(ibmcloud pi instance snapshot get $LPAR_NAME --snapshot $SOURCE_SNAPSHOT_ID --json)
 
 if [ $? -ne 0 ]; then
@@ -85,7 +111,7 @@ if [ $? -ne 0 ]; then
 fi
 
 # Action: Extract the list of Volume IDs and format them as a single comma-separated string 
-# which is the format required by the 'volume clone-async' command [16-18].
+# which is the format required by the 'volume clone-async' command.
 SOURCE_VOLUME_IDS=$(echo $VOLUME_IDS_JSON | jq -r '.volumeIDs | join(",")')
 
 if [ -z "$SOURCE_VOLUME_IDS" ]; then
@@ -97,7 +123,7 @@ echo "Source Volume IDs found: $SOURCE_VOLUME_IDS"
 
 
 # =============================================================
-# STEP 4: Create Volume Clones from the Discovered Source Volumes
+# STEP 5: Create Volume Clones from the Discovered Source Volumes
 # =============================================================
 echo "--- Step 4: Initiating volume cloning of all source volumes ---"
 
@@ -116,7 +142,7 @@ fi
 # Action: Wait for the asynchronous cloning job to complete.
 wait_for_job $CLONE_TASK_ID
 
-# Action: Find the IDs of the newly created clone volumes using the unique name prefix [1].
+# Action: Find the IDs of the newly created clone volumes using the unique name prefix.
 # The command lists all volumes, and jq filters by name.
 NEW_CLONE_IDS=$(ibmcloud pi volume list --long --json | jq -r ".volumes[] | select(.name | startswith(\"$CLONE_NAME_PREFIX\")) | .volumeID")
 
@@ -136,7 +162,7 @@ echo "New Data Volume IDs: $CLONE_DATA_IDS"
 
 
 # =============================================================
-# STEP 5: Attach Cloned Volumes to the LPAR
+# STEP 6: Attach Cloned Volumes to the LPAR
 # =============================================================
 echo "--- Step 5: Attaching cloned volumes to $LPAR_NAME (Must be in SHUTOFF state) ---"
 
@@ -161,7 +187,7 @@ sleep 60
 
 
 # =============================================================
-# STEP 6: Boot LPAR in Normal Server Operating Mode (Unattended IPL)
+# STEP 7: Boot LPAR in Normal Server Operating Mode (Unattended IPL)
 # =============================================================
 echo "--- Step 6: Starting LPAR in Normal Server Operating Mode ---"
 
