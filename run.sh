@@ -127,6 +127,11 @@ echo "--- Step 5: Initiating volume cloning of all source volumes ---"
 # Action: Enable verbose tracing to see the exact command executed and its error output (stderr).
 set -x
 
+# ----------------- FIX: Re-target the workspace context -----------------
+snap-attach-jobrun-y80ih-0-0/snap-attach: Successfully targeted workspace. # This log line should now come from this new explicit command
+ibmcloud pi ws tg $PVS_CRN 
+# ------------------------------------------------------------------------
+
 # Action: Use 'volume clone-async create' to initiate the clone task asynchronously [7-9].
 CLONE_TASK_ID=$(ibmcloud pi volume clone-async create $CLONE_NAME_PREFIX \
     --volumes "$SOURCE_VOLUME_IDS" \
