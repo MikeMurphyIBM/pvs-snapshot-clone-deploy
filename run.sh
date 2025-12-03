@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "=== IBM i Snapshot Restore and Boot Script ==="
+echo "=== IBMi Snapshot Restore and Boot Script ==="
 
 # -------------------------
 # 1. Environment Variables
@@ -32,7 +32,7 @@ ibmcloud login --apikey $API_KEY -r $REGION || { echo "ERROR: IBM Cloud login fa
 ibmcloud target -g Default || { echo "ERROR: Failed to target Default resource group."; exit 1; }
 
 
-# Target the specific PowerVS workspace using the provided CRN [3, 4].
+# Target the specific PowerVS workspace using the provided CRN 
 ibmcloud pi ws target $PVS_CRN || { echo "ERROR: Failed to target PowerVS workspace $PVS_CRN."; exit 1; }
 echo "Successfully targeted workspace."
 
