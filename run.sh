@@ -8,8 +8,8 @@ echo "=== IBM i Snapshot Restore and Boot Script ==="
 
 API_KEY="${IBMCLOUD_API_KEY}"       # IAM API Key stored in Code Engine Secret
 PVS_CRN="crn:v1:bluemix:public:power-iaas:dal10:a/21d74dd4fe814dfca20570bbb93cdbff:cc84ef2f-babc-439f-8594-571ecfcbe57a::" # Full PowerVS Workspace CRN
-CLOUD_INSTANCE_ID="${cc84ef2f-babc-439f-8594-571ecfcbe57a}" # PowerVS Workspace ID
-LPAR_NAME="${empty-ibmi-lpar}"            # Name of the target LPAR: "empty-ibmi-lpar"
+CLOUD_INSTANCE_ID="cc84ef2f-babc-439f-8594-571ecfcbe57a" # PowerVS Workspace ID
+LPAR_NAME="empty-ibmi-lpar"            # Name of the target LPAR: "empty-ibmi-lpar"
 REGION="us-south"
 
 # Storage Tier. Must match the storage tier of the original volumes in the snapshot.
@@ -66,13 +66,14 @@ function wait_for_job() {
 # =============================================================
 # STEP 3: Dynamically Discover the Latest Snapshot ID
 # =============================================================
-echo "--- Step 3: Discovering the latest Snapshot ID for LPAR: $LPAR_NAME ---"
 
-# Command: List all snapshots associated with the LPAR in JSON format [6].
-SNAPSHOT_LIST_JSON=$(ibmcloud pi instance snapshot list $LPAR_NAME --json)
+echo "--- Step 3: Discovering the latest Snapshot ID in the Workspace (Target LPAR: $LPAR_NAME) ---"
+
+# Command: List all snapshots in the entire workspace in JSON format.
+SNAPSHOT_LIST_JSON=$(ibmcloud pi instance snapshot list --json)
 
 if [ $? -ne 0 ] || [ -z "$SNAPSHOT_LIST_JSON" ]; then
-    echo "Error: Failed to retrieve snapshot list for LPAR $LPAR_NAME. Aborting."
+    echo "Error: Failed to retrieve **workspace snapshot list (targeting LPAR $LPAR_NAME)**. Aborting."
     exit 1
 fi
 
