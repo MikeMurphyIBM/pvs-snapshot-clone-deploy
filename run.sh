@@ -225,6 +225,12 @@ echo "New Data Volume IDs: $CLONE_DATA_IDS"
 # =============================================================
 # STEP 6: Attach Cloned Volumes to the Empty LPAR
 # =============================================================
+
+# --- Re-target and LPAR Status Check Retry Loop ---
+
+# IMPORTANT: Re-target the workspace to ensure CLI context is sound.
+ibmcloud pi ws target $PVS_CRN || { echo "ERROR: Failed to re-target PowerVS workspace $PV
+
 LPAR_NAME="empty-ibmi-lpar" # Assuming this variable holds the target name
 
 echo "--- Step 6: Attaching cloned volumes to $LPAR_NAME ---"
