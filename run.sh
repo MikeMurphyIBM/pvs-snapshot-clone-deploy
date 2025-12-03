@@ -98,15 +98,17 @@ echo "Latest Snapshot ID found: $SOURCE_SNAPSHOT_ID"
 echo "--- Step 4: Discovering Source Volume IDs from Snapshot: $SOURCE_SNAPSHOT_ID ---"
 
 # Action: Retrieve the snapshot metadata in JSON format.
-VOLUME_IDS_JSON=$(ibmcloud pi instance snapshot get $LPAR_NAME --snapshot $SOURCE_SNAPSHOT_ID --json)
+# Correction 1: Removed $LPAR_NAME and the unnecessary --snapshot flag.
+VOLUME_IDS_JSON=$(ibmcloud pi instance snapshot get $SOURCE_SNAPSHOT_ID --json)
 
 if [ $? -ne 0 ]; then
-    echo "Error retrieving snapshot details. Check snapshot ID/Name and LPAR name."
+    echo "Error retrieving snapshot details. Check snapshot ID/Name."
     exit 1
 fi
 
-# Action: Extract the list of Volume IDs and format them as a single comma-separated string.
-SOURCE_VOLUME_IDS=$(echo $VOLUME_IDS_JSON | jq -r '.volumeIDs | join(",")')
+# Action: Extract the list of original Volume IDs (the keys) and format them as a single comma-separated string.
+# Correction 2 & 3: Corrected the input variable name and completed the missing 'jq' syntax.
+SOURCE_VOLUME_IDS=$(echo "$VOLUME_IDS_JSON" | jq -r '.volumeSnapshots | keys | join(",")')
 
 if [ -z "$SOURCE_VOLUME_IDS" ]; then
     echo "Error: No Volume IDs found in the snapshot metadata. Aborting."
