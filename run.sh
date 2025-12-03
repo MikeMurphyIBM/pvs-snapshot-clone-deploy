@@ -136,7 +136,7 @@ ibmcloud pi ws tg $PVS_CRN
 CLONE_TASK_ID=$(ibmcloud pi volume clone-async create $CLONE_NAME_PREFIX \
     --volumes "$SOURCE_VOLUME_IDS" \
     --target-tier $STORAGE_TIER \
-    --json | jq -r '.id')
+    --json | jq -r '.cloneTaskID')
 
     
 # Action: Disable verbose tracing.
