@@ -121,24 +121,23 @@ echo "Source Volume IDs found: $SOURCE_VOLUME_IDS"
 # =============================================================
 # STEP 5: Create Volume Clones from the Discovered Source Volumes
 # =============================================================
+
+
 echo "--- Step 5: Initiating volume cloning of all source volumes ---"
 
 # --- DEBUGGING START ---
 # Action: Enable verbose tracing to see the exact command executed and its error output (stderr).
 set -x
 
-# ----------------- FIX: Re-target the workspace context -----------------
-snap-attach-jobrun-y80ih-0-0/snap-attach: Successfully targeted workspace. # This log line should now come from this new explicit command
+# FIX: Re-target the workspace context (Ensures the PVS context remains active for the clone operation).
 ibmcloud pi ws tg $PVS_CRN 
-# ------------------------------------------------------------------------
 
-# Action: Use 'volume clone-async create' to initiate the clone task asynchronously [7-9].
+# Action: Use 'volume clone-async create' to initiate the clone task asynchronously.
 CLONE_TASK_ID=$(ibmcloud pi volume clone-async create $CLONE_NAME_PREFIX \
     --volumes "$SOURCE_VOLUME_IDS" \
     --target-tier $STORAGE_TIER \
-    --json | jq -r '.cloneTaskID')
+    --json | jq -r '.cloneTaskID') # <-- CRITICAL FIX: Ensures the correct ID field is captured.
 
-    
 # Action: Disable verbose tracing.
 set +x
 # --- DEBUGGING END ---
@@ -149,6 +148,8 @@ if [ -z "$CLONE_TASK_ID" ]; then
 fi
 
 # Action: Wait for the asynchronous cloning job to complete.
+# NOTE: The implementation of the 'wait_for_job' function MUST be updated
+# to use 'ibmcloud pi volume clone-async get $CLONE_TASK_ID'.
 wait_for_job $CLONE_TASK_ID
 
 # Action: Find the IDs of the newly created clone volumes using the unique name prefix.
@@ -167,7 +168,6 @@ CLONE_DATA_IDS=$(echo "$NEW_CLONE_IDS" | tail -n +2 | tr '\n' ',' | sed 's/,$//'
 
 echo "New Boot Volume ID (assumed): $CLONE_BOOT_ID"
 echo "New Data Volume IDs: $CLONE_DATA_IDS"
-
 
 # =============================================================
 # STEP 6: Attach Cloned Volumes to the Empty LPAR
