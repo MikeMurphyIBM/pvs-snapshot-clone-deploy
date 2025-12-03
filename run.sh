@@ -300,7 +300,7 @@ echo "LPAR '$LPAR_NAME' start initiated successfully in NORMAL mode."
 echo "--- Step 8: Checking LPAR status ---"
 
 while true; do
-    LPAR_STATUS=$(ibmcloud pi instance get $LPAR_NAME --json | jq -r '.status')
+    LPAR_STATUS=$(ibmcloud pi instance get "$LPAR_NAME" --json | jq -r '.status')
     
     if [[ "$LPAR_STATUS" == "ACTIVE" ]]; then
         echo "SUCCESS: LPAR $LPAR_NAME is now ACTIVE."
@@ -310,7 +310,7 @@ while true; do
         echo "Error: LPAR $LPAR_NAME entered ERROR state after boot. Aborting."
         exit 1
     else
-        echo "LPAR $LPAR_NAME status: $LPAR_STATUS. Waiting 30 seconds."
+        echo "$LPAR_NAME status: $LPAR_STATUS. Waiting 30 seconds."
         sleep 30
     fi
 done
