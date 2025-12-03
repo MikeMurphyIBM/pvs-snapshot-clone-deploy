@@ -11,6 +11,8 @@ PVS_CRN="crn:v1:bluemix:public:power-iaas:dal10:a/21d74dd4fe814dfca20570bbb93cdb
 CLOUD_INSTANCE_ID="cc84ef2f-babc-439f-8594-571ecfcbe57a" # PowerVS Workspace ID
 LPAR_NAME="empty-ibmi-lpar"            # Name of the target LPAR: "empty-ibmi-lpar"
 REGION="us-south"
+PRIMARY_LPAR="LPAR_PRIMARY"
+
 
 # Storage Tier. Must match the storage tier of the original volumes in the snapshot.
 STORAGE_TIER="tier3"
@@ -69,10 +71,29 @@ function wait_for_job() {
 }
 
 
+# =============================================================
+# STEP 3a: Perform the Snapshot Operation on Primary LPAR
+# =============================================================
+
+# 1. Generate the unique snapshot name down to the minute (Year, Month, Day, Hour, Minute).
+# This satisfies the requirement that snapshot names must be unique for your workspace [4].
+SNAPSHOT_NAME="TMP_SNAP_$(date +"%Y%m%d%H%M")"
+
+echo "--- Step 1: Initiating Snapshot on LPAR: $PRIMARY_LPAR ---"
+echo "Generated Snapshot Name: $SNAPSHOT_NAME"
+
+# --- Execute Snapshot Operation ---
+ibmcloud pi instance snapshot create "$PRIMARY_LPAR" --name "$SNAPSHOT_NAME"
+
+echo "--- Step 2: Waiting 10 Minutes for Snapshot Creation to Complete ---"
+# Snapshot creation is an asynchronous process (a job) and takes time to reach 'Available' status
+sleep 10m
+
+echo "--- Step 3: Snapshot Progress Check Point ---"
 
 
 # =============================================================
-# STEP 3: Dynamically Discover the Latest Snapshot ID
+# STEP 3b: Dynamically Discover the Latest Snapshot ID
 # =============================================================
 
 echo "--- Step 3: Discovering the latest Snapshot ID in the Workspace (Target LPAR: $LPAR_NAME) ---"
