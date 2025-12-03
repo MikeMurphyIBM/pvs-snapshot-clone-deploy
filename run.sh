@@ -291,7 +291,7 @@ if [ $? -ne 0 ]; then
     exit 1 
 fi
 
-echo "LPAR '$LPAR_NAME' start initiated successfully in NORMAL mode (Boot Mode A)."
+echo "LPAR '$LPAR_NAME' start initiated successfully in NORMAL mode."
 
 
 # =============================================================
