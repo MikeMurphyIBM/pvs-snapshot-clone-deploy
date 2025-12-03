@@ -130,7 +130,6 @@ echo "Source Volume IDs found: $SOURCE_VOLUME_IDS"
 # STEP 5: Create Volume Clones from the Discovered Source Volumes
 # =============================================================
 
-
 echo "--- Step 5: Initiating volume cloning of all source volumes ---"
 
 # --- DEBUGGING START ---
@@ -139,13 +138,15 @@ set -x
 
 # FIX: Re-target the workspace context (Ensures the PVS context remains active for the clone operation).
 ibmcloud pi ws tg $PVS_CRN 
+# ------------------------------------------------------------------------
 
-# Action: Use 'volume clone-async create' to initiate the clone task asynchronously.
+# Action: Use 'volume clone-async create' to initiate the clone task asynchronously [2].
 CLONE_TASK_ID=$(ibmcloud pi volume clone-async create $CLONE_NAME_PREFIX \
     --volumes "$SOURCE_VOLUME_IDS" \
     --target-tier $STORAGE_TIER \
-    --json | jq -r '.cloneTaskID') # <-- CRITICAL FIX: Ensures the correct ID field is captured.
+    --json | jq -r '.cloneTaskID')
 
+    
 # Action: Disable verbose tracing.
 set +x
 # --- DEBUGGING END ---
@@ -156,15 +157,17 @@ if [ -z "$CLONE_TASK_ID" ]; then
 fi
 
 # Action: Wait for the asynchronous cloning job to complete.
-# NOTE: The implementation of the 'wait_for_job' function MUST be updated
-# to use 'ibmcloud pi volume clone-async get $CLONE_TASK_ID'.
 wait_for_job $CLONE_TASK_ID
 
+# [NEW LINE ADDED] Insert a delay to allow the volumes to appear in the API list
+sleep 20 
+
 # Action: Find the IDs of the newly created clone volumes using the unique name prefix.
-NEW_CLONE_IDS=$(ibmcloud pi volume list --long --json | jq -r ".volumes[] | select(.name | startswith(\"$CLONE_NAME_PREFIX\")) | .volumeID")
+# [EDITED LINE] Added "clone-" prefix, as PVS names asynchronously cloned volumes with this prefix [1].
+NEW_CLONE_IDS=$(ibmcloud pi volume list --long --json | jq -r ".volumes[] | select(.name | startswith(\"clone-$CLONE_NAME_PREFIX\")) | .volumeID")
 
 if [ -z "$NEW_CLONE_IDS" ]; then
-    echo "Error: Could not locate newly cloned volume IDs based on prefix $CLONE_NAME_PREFIX. Aborting."
+    echo "Error: Could not locate newly cloned volume IDs based on prefix clone-$CLONE_NAME_PREFIX. Aborting."
     exit 1
 fi
 
@@ -176,6 +179,7 @@ CLONE_DATA_IDS=$(echo "$NEW_CLONE_IDS" | tail -n +2 | tr '\n' ',' | sed 's/,$//'
 
 echo "New Boot Volume ID (assumed): $CLONE_BOOT_ID"
 echo "New Data Volume IDs: $CLONE_DATA_IDS"
+
 
 # =============================================================
 # STEP 6: Attach Cloned Volumes to the Empty LPAR
