@@ -160,7 +160,7 @@ fi
 wait_for_job $CLONE_TASK_ID
 
 # [NEW LINE ADDED] Insert a delay to allow the volumes to appear in the API list
-sleep 20 
+sleep 75 
 
 # Action: Find the IDs of the newly created clone volumes using the unique name prefix.
 # [EDITED LINE] Added "clone-" prefix, as PVS names asynchronously cloned volumes with this prefix [1].
