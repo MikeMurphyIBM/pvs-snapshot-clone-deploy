@@ -7,7 +7,7 @@ echo "=== IBM i Snapshot Restore and Boot Script ==="
 # -------------------------
 
 API_KEY="${IBMCLOUD_API_KEY}"       # IAM API Key stored in Code Engine Secret
-PVS_CRN="${crn:v1:bluemix:public:power-iaas:dal10:a/21d74dd4fe814dfca20570bbb93cdbff:cc84ef2f-babc-439f-8594-571ecfcbe57a::}" # Full PowerVS Workspace CRN
+PVS_CRN="crn:v1:bluemix:public:power-iaas:dal10:a/21d74dd4fe814dfca20570bbb93cdbff:cc84ef2f-babc-439f-8594-571ecfcbe57a::" # Full PowerVS Workspace CRN
 CLOUD_INSTANCE_ID="${cc84ef2f-babc-439f-8594-571ecfcbe57a}" # PowerVS Workspace ID
 LPAR_NAME="${empty-ibmi-lpar}"            # Name of the target LPAR: "empty-ibmi-lpar"
 REGION="us-south"
