@@ -70,31 +70,6 @@ function wait_for_job() {
 
 
 
-# =============================================================
-# Helper Function for Waiting for Asynchronous Jobs
-# =============================================================
-
-function wait_for_job() {
-    JOB_ID=$1
-    echo "Waiting for asynchronous job ID: $JOB_ID to complete..."
-    
-    while true; do
-        # Retrieve the job status using the CLI command and jq [5].
-        STATUS=$(ibmcloud pi job get $JOB_ID --json | jq -r '.status')
-        
-        if [[ "$STATUS" == "completed" ]]; then
-            echo "Job $JOB_ID completed successfully."
-            break
-        elif [[ "$STATUS" == "failed" ]]; then
-            echo "Error: Job $JOB_ID failed. Aborting script."
-            exit 1
-        else
-            echo "Job $JOB_ID status: $STATUS. Waiting 30 seconds..."
-            sleep 30
-        fi
-    done
-}
-
 
 # =============================================================
 # STEP 3: Dynamically Discover the Latest Snapshot ID
