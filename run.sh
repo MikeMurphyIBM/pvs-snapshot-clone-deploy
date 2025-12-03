@@ -272,14 +272,17 @@ sleep 60
 # =============================================================
 echo "--- Step 7: Starting LPAR in Normal Server Operating Mode ---"
 
-# Action: Initiate the boot operation using the IBM i operation command [16, 17].
-# Setting '--boot-operating-mode normal' specifies an unattended IPL [18].
-ibmcloud pi instance operation $LPAR_NAME \
+# Action: Start the LPAR in Normal operating mode, specifying a boot mode (e.g., 'a').
+# The 'instance operation' command is used to assign a server boot mode and operating mode 
+ibmcloud pi instance operation "$LPAR_NAME" \
     --operation-type boot \
-    --boot-operating-mode normal \
-    || { echo "Error: Failed to start LPAR in NORMAL mode."; exit 1; }
+    --boot-mode a \
+    --boot-operating-mode normal || {
+        echo "Error: Failed to start LPAR in NORMAL mode."
+        exit 1
+    }
 
-echo "LPAR $LPAR_NAME successfully booted in NORMAL mode. Monitoring status..."
+echo "LPAR '$LPAR_NAME' start initiated successfully in NORMAL mode (Boot Mode A)."
 
 
 # =============================================================
