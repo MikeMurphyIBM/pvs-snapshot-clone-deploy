@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 echo "=== IBM i Snapshot Restore and Boot Script ==="
 
