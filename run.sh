@@ -36,6 +36,39 @@ ibmcloud target -g Default || { echo "ERROR: Failed to target Default resource g
 ibmcloud pi ws target $PVS_CRN || { echo "ERROR: Failed to target PowerVS workspace $PVS_CRN."; exit 1; }
 echo "Successfully targeted workspace."
 
+# =============================================================
+# Helper Function for Waiting for Asynchronous Clone Tasks
+# (Volume cloning is an asynchronous operation handled via a Clone Task ID)
+# =============================================================
+
+# Function definition to poll the status of an asynchronous PowerVS clone task.
+function wait_for_job() {
+    CLONE_TASK_ID=$1
+    echo "Waiting for asynchronous clone task ID: $CLONE_TASK_ID to complete..."
+    
+    # Loop continuously to check job status until completion or failure.
+    while true; do
+        # Use ibmcloud pi volume clone-async get to retrieve the clone task details. 
+        # This is required for asynchronous volume clone requests (CLI v1.3.0 and newer) [1, 2].
+        STATUS=$(ibmcloud pi volume clone-async get $CLONE_TASK_ID --json | jq -r '.status')
+        
+        # Check if the job status indicates successful completion.
+        if [[ "$STATUS" == "completed" ]]; then
+            echo "Clone Task $CLONE_TASK_ID completed successfully."
+            break
+        # Check if the job status indicates failure.
+        elif [[ "$STATUS" == "failed" ]]; then
+            echo "Error: Clone Task $CLONE_TASK_ID failed. Aborting script."
+            exit 1
+        # If still pending, wait 30 seconds before polling again.
+        else
+            echo "Clone Task $CLONE_TASK_ID status: $STATUS. Waiting 30 seconds..."
+            sleep 30
+        fi
+    done
+}
+
+
 
 # =============================================================
 # Helper Function for Waiting for Asynchronous Jobs
