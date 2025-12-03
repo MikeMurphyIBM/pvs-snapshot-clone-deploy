@@ -166,10 +166,33 @@ sleep 75
 # Replace the original line with the corrected line below:
 NEW_CLONE_IDS=$(ibmcloud pi volume list --long --json | jq -r ".volumes[] | select(.name | contains(\"$CLONE_NAME_PREFIX\")) | .volumeID")
 
+# The search for NEW_CLONE_IDS using the new, correct 'contains' logic executes just above here.
+
 if [[ -z "$NEW_CLONE_IDS" ]]
 then
-    echo "Error: Could not locate newly cloned volume IDs based on prefix clone-$CLONE_NAME_PREFIX. Aborting."
-    exit 1
+    echo "=========================================================================="
+    echo "ERROR: Failed to locate newly cloned volume IDs based on unique prefix: $CLONE_NAME_PREFIX."
+    echo "Initiating cleanup to prevent orphaned volumes and accruing charges."
+    
+    # 1. Re-run the volume search specifically to collect IDs for deletion.
+    # We use the successful 'contains' logic again to ensure we find all volumes created in this run.
+    CLEANUP_IDS=$(ibmcloud pi volume list --long --json | jq -r ".volumes[] | select(.name | contains(\"$CLONE_NAME_PREFIX\")) | .volumeID")
+
+    if [[ -n "$CLEANUP_IDS" ]]
+    then
+        # 2. Execute bulk deletion using the list of IDs found.
+        # This uses the ibmcloud pi volume bulk-delete command [2, 3].
+        echo "Found volumes for cleanup: $CLEANUP_IDS"
+        ibmcloud pi volume bulk-delete --volumes "$CLEANUP_IDS"
+        echo "Cleanup successful. The unused cloned volumes have been deleted."
+    else
+        echo "No volumes were found matching $CLONE_NAME_PREFIX to delete. Cleanup may not be required."
+    fi
+
+    echo "Operation aborted."
+    echo "=========================================================================="
+    # 3. Terminate the script completely
+    exit 1 
 fi
 
 # Action: Designate the Boot Volume and Data Volumes.
