@@ -310,7 +310,7 @@ while true; do
         echo "Error: LPAR $LPAR_NAME entered ERROR state after boot. Aborting."
         exit 1
     else
-        echo "LPAR $LPAR_NAME status: $LPAR_STATUS. Waiting 30 seconds..."
+        echo "LPAR $LPAR_NAME status: $LPAR_STATUS. Waiting 30 seconds."
         sleep 30
     fi
 done
