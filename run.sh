@@ -162,11 +162,12 @@ wait_for_job $CLONE_TASK_ID
 # [NEW LINE ADDED] Insert a delay to allow the volumes to appear in the API list
 sleep 75 
 
-# Action: Find the IDs of the newly created clone volumes using the unique name prefix.
-# [EDITED LINE] Added "clone-" prefix, as PVS names asynchronously cloned volumes with this prefix [1].
-NEW_CLONE_IDS=$(ibmcloud pi volume list --long --json | jq -r ".volumes[] | select(.name | startswith(\"clone-$CLONE_NAME_PREFIX\")) | .volumeID")
+# CRITICAL CHANGE HERE: Find the IDs of the newly created clone volumes.
+# Replace the original line with the corrected line below:
+NEW_CLONE_IDS=$(ibmcloud pi volume list --long --json | jq -r ".volumes[] | select(.name | contains(\"$CLONE_NAME_PREFIX\")) | .volumeID")
 
-if [ -z "$NEW_CLONE_IDS" ]; then
+if [[ -z "$NEW_CLONE_IDS" ]]
+then
     echo "Error: Could not locate newly cloned volume IDs based on prefix clone-$CLONE_NAME_PREFIX. Aborting."
     exit 1
 fi
