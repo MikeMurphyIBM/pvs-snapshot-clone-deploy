@@ -11,37 +11,16 @@ WORKDIR ${HOME}
 # -----------------------------------------------------------
 # 1. Install Dependencies (curl, jq, and bash)
 # -----------------------------------------------------------
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
-    jq \
-    bash \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+    ca-certificates \
+    jq
 
 # -----------------------------------------------------------
-# 2. Install IBM Cloud CLI and PowerVS Plugin
+# Install IBM Cloud CLI and Power Virtual Server (Power-IaaS) Plugin
+# This step is COMBINED (using '&&') into a single RUN instruction.
+# This ensures that the shell environment where the IBM Cloud CLI is installed 
+# immediately proceeds to install the plugin, resolving the 'ibmcloud: not found' error.
 # -----------------------------------------------------------
-
-# Install the IBM Cloud CLI core utility [1]
-RUN curl -fsSL https://clis.cloud.ibm.com/install/linux | bash 
-
-# Install the Power Virtual Server (Power-IaaS) CLI plugin [2]
-RUN ibmcloud plugin install power-iaas -f
-
-# -----------------------------------------------------------
-# 3. Add Script and Set Permissions
-# -----------------------------------------------------------
-
-# Copy the restoration shell script (named run.sh)
-COPY run.sh /usr/local/bin/run.sh
-
-# Ensure the script is executable
-RUN chmod +x /usr/local/bin/run.sh
-
-# -----------------------------------------------------------
-# 4. Define Execution Command
-# -----------------------------------------------------------
-
-# Set the entry point to run the script.
-ENTRYPOINT ["/usr/local/bin/run.sh"]
+RUN curl -fsSL https://clis.cloud.ibm.com/install/linux | bash && \
+    ibmcloud plugin install power-iaas -f
