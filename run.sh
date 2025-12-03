@@ -123,11 +123,20 @@ echo "Source Volume IDs found: $SOURCE_VOLUME_IDS"
 # =============================================================
 echo "--- Step 5: Initiating volume cloning of all source volumes ---"
 
+# --- DEBUGGING START ---
+# Action: Enable verbose tracing to see the exact command executed and its error output (stderr).
+set -x
+
 # Action: Use 'volume clone-async create' to initiate the clone task asynchronously [7-9].
 CLONE_TASK_ID=$(ibmcloud pi volume clone-async create $CLONE_NAME_PREFIX \
     --volumes "$SOURCE_VOLUME_IDS" \
     --target-tier $STORAGE_TIER \
     --json | jq -r '.id')
+
+    
+# Action: Disable verbose tracing.
+set +x
+# --- DEBUGGING END ---
 
 if [ -z "$CLONE_TASK_ID" ]; then
     echo "Error creating volume clone task. Aborting."
