@@ -24,3 +24,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # -----------------------------------------------------------
 RUN curl -fsSL https://clis.cloud.ibm.com/install/linux | bash && \
     ibmcloud plugin install power-iaas -f
+
+# -----------------------------------------------------------
+# 2. Add Runtime Script and Define Entrypoint
+# -----------------------------------------------------------
+# Copy the executable script into the working directory
+COPY run.sh .
+
+# Ensure the script is executable
+RUN chmod +x run.sh
+
+# Define the command to execute when the container starts
+CMD ["/root/run.sh"]
