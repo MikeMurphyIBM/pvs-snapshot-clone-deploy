@@ -263,11 +263,16 @@ sleep 60
 echo "--- Step 7: Starting LPAR in Normal Server Operating Mode ---"
 
 # Action: Start the LPAR in Normal operating mode, specifying a boot mode (e.g., 'a').
-# Boot Mode 'a' uses copy A of the Licensed Internal Code (LIC) [4-6].
+# Boot Mode 'a' uses copy A of the Licensed Internal Code (LIC) [1].
 ibmcloud pi instance operation "$LPAR_NAME" \
     --operation-type boot \
     --boot-mode a \
-    --boot-operating-mode normal 
+    --boot-operating-mode normal
+
+# Action: Command to actually start the LPAR.
+# The 'instance action' command performs the general 'start' operation on a PVM server instance
+ibmcloud pi instance action "$LPAR_NAME" --operation start
+
 
 # --- Explicit Exit Check (Optional, but adds clear logging before the global trap) ---
 if [ $? -ne 0 ]; then
