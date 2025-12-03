@@ -286,7 +286,7 @@ ibmcloud pi instance operation "$LPAR_NAME" \
     --boot-operating-mode normal || {
         echo "Error: Failed to start LPAR in NORMAL mode."
         exit 1
-   ; }
+    }
 
 echo "LPAR '$LPAR_NAME' start initiated successfully in NORMAL mode (Boot Mode A)."
 
