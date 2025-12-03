@@ -24,18 +24,22 @@ CLONE_NAME_PREFIX="CLONE-RESTORE-$(date +"%Y%m%d%H%M")"
 # 2. Initialization and Targeting
 # -------------------------
 
-echo "--- Logging into IBM Cloud and Targeting PowerVS Workspace ---"
+echo "--- Step 1: Secure Authentication and Workspace Targeting ---"
 
-# Log in using the API key
-ibmcloud login --apikey $API_KEY -r $REGION || { echo "ERROR: IBM Cloud login failed."; exit 1; }
+# 1. Log in to IBM Cloud using an API Key and target the correct Region.
+# The API key approach is ideal for automated deployment operations [1].
+ibmcloud login --apikey $API_KEY -r $REGION || { 
+    echo "ERROR: IBM Cloud login failed. Please verify API key and region."
+    exit 1 
+}
 
-#Target the Default Resource Group
-# You would use the name or ID of the Default resource group here.
-ibmcloud target -g Default || { echo "ERROR: Failed to target Default resource group."; exit 1; }
+# 2. Target the specific Power Virtual Server workspace using its CRN.
+# This explicitly sets the context required for subsequent 'ibmcloud pi' commands.
+ibmcloud pi ws target $PVS_CRN || { 
+    echo "ERROR: Failed to target PowerVS workspace $PVS_CRN."
+    exit 1 
+}
 
-
-# Target the specific PowerVS workspace using the provided CRN 
-ibmcloud pi ws target $PVS_CRN || { echo "ERROR: Failed to target PowerVS workspace $PVS_CRN."; exit 1; }
 echo "Successfully targeted workspace."
 
 # =============================================================
@@ -299,9 +303,10 @@ ibmcloud pi ws target "$PVS_CRN" || { echo "ERROR: Failed to re-target PowerVS w
 
 LPAR_NAME="empty-ibmi-lpar" # Assuming this variable holds the target name
 
-echo "--- Step 6: Attaching cloned volumes to $LPAR_NAME ---"
+# --- Step 2: Attaching cloned volumes to $LPAR_NAME ---
+echo "--- Step 2: Attaching cloned volumes to $LPAR_NAME ---"
 
-# Action: Attach the Load Source (Boot) volume using the --boot-volume flag.
+# Action: Attach the Load Source (Boot) volume using the --boot-volume flag [2, 3].
 # We build a single command line for all attachments.
 ATTACH_CMD="ibmcloud pi instance volume attach $LPAR_NAME --boot-volume $CLONE_BOOT_ID"
 
@@ -310,41 +315,69 @@ if [ ! -z "$CLONE_DATA_IDS" ]; then
     ATTACH_CMD="$ATTACH_CMD --volumes $CLONE_DATA_IDS"
 fi
 
-echo "Executing attach command: $ATTACH_CMD"
-
-# Execute the volume attachment command.
-# The attachment process requires the LPAR to be shut off [4-6].
+# Execute the volume attachment command. This is an asynchronous operation.
+# The volume attachment operation requires the LPAR to be shut off [4].
+echo "Executing attachment command: $ATTACH_CMD"
 $ATTACH_CMD || {
     echo "ERROR: Failed to attach volumes to LPAR. Check LPAR status and volume availability."
     exit 1
 }
 
-echo "Volumes attached successfully. Waiting 60 seconds for attachment to finalize."
-sleep 60
+echo "Volume attachment initiated. Waiting for operation to finalize..."
 
 
-# =============================================================
-# STEP 7: Boot LPAR in Normal Server Operating Mode (Unattended IPL)
-# =============================================================
-echo "--- Step 7: Starting LPAR in Normal Server Operating Mode ---"
+# --- Step 3: Dynamic Polling Loop: Wait for Attachment Completion (Task State Clearance) ---
 
-# Action: Start the LPAR in Normal operating mode, specifying a boot mode (e.g., 'a').
-# Boot Mode 'a' uses copy A of the Licensed Internal Code (LIC) [1].
+echo "Polling started: Waiting for instance $LPAR_NAME to clear task_state and reach $EXPECTED_STATUS status (Checking every ${POLL_INTERVAL} seconds)"
+
+while true; do
+    
+    # Retrieve the current status of the instance [5, 6].
+    STATUS_JSON=$(ibmcloud pi instance get "$LPAR_NAME" --json 2>/dev/null)
+    
+    # Extract status, convert to uppercase, and strip whitespace for robust comparison.
+    CURRENT_STATUS=$(echo "$STATUS_JSON" | jq -r '.status' | tr '[:lower:]' '[:upper:]' | tr -d '[:space:].')
+
+    if [[ "$CURRENT_STATUS" == "$EXPECTED_STATUS" ]]; then
+        # The volume operation is complete and the instance is in the stable SHUTOFF state.
+        echo "SUCCESS: Instance $LPAR_NAME is now in status $CURRENT_STATUS. Proceeding to start."
+        break  # Exit the while loop to proceed to the next step
+        
+    elif [[ "$CURRENT_STATUS" == "$ERROR_STATUS_1" || "$CURRENT_STATUS" == "$ERROR_STATUS_2" ]]; then
+        echo "FATAL ERROR: Instance status is $CURRENT_STATUS. The volume attachment or LPAR state has failed. Exiting script."
+        exit 1
+        
+    elif [[ -z "$CURRENT_STATUS" || "$CURRENT_STATUS" == "NULL" ]]; then
+        # Handle cases where status extraction fails temporarily
+        echo "Warning: Instance status temporarily unavailable or NULL. Waiting ${POLL_INTERVAL} seconds..."
+        sleep $POLL_INTERVAL
+        
+    else
+        # Status is still transitional (e.g., ATTACHING_VOLUME, WARNING, etc.)
+        echo "Instance status: $CURRENT_STATUS. Still waiting for target status $EXPECTED_STATUS. Waiting ${POLL_INTERVAL} seconds..."
+        sleep $POLL_INTERVAL
+    fi
+done
+
+# --- Step 4: Start the LPAR (Only runs after polling successfully breaks the loop) ---
+echo "--- Step 4: Starting LPAR $LPAR_NAME in NORMAL mode (Mode A) ---"
+
+# 1. Configure the Boot Mode and Operating Mode for the IBM i instance
+# Boot Mode 'a' uses copy A of the Licensed Internal Code (LIC) [7].
 ibmcloud pi instance operation "$LPAR_NAME" \
     --operation-type boot \
     --boot-mode a \
-    --boot-operating-mode normal
+    --boot-operating-mode normal || {
+    echo "FATAL ERROR: Failed to configure IBM i boot operation."
+    exit 1
+}
 
-# Action: Command to actually start the LPAR.
-# The 'instance action' command performs the general 'start' operation on a PVM server instance
-ibmcloud pi instance action "$LPAR_NAME" --operation start
-
-
-# --- Explicit Exit Check (Optional, but adds clear logging before the global trap) ---
-if [ $? -ne 0 ]; then
-    echo "Error: Failed to start LPAR in NORMAL mode. Aborting."
+# 2. Initiate the LPAR Start operation (This executes the power-on)
+# The action command performs an operation (start) on a PVM server instance [8, 9].
+ibmcloud pi instance action "$LPAR_NAME" --operation start || { 
+    echo "FATAL ERROR: Failed to initiate LPAR start command. Aborting."
     exit 1 
-fi
+}
 
 echo "LPAR '$LPAR_NAME' start initiated successfully in NORMAL mode."
 
