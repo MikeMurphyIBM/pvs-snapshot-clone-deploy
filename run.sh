@@ -14,8 +14,8 @@ REGION="us-south"
 
 # Storage Tier. Must match the storage tier of the original volumes in the snapshot.
 STORAGE_TIER="tier3"
-# Unique prefix for the new cloned volumes
-CLONE_NAME_PREFIX="CLONE-RESTORE-$(date +%Y%m%d%H%M%S)"
+# Corrected unique prefix for the new cloned volumes, excluding seconds (%S)
+CLONE_NAME_PREFIX="CLONE-RESTORE-$(date +"%Y%m%d%H%M")"
 
 
 # -------------------------
