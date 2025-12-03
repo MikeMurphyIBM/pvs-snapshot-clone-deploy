@@ -130,7 +130,7 @@ echo "Source Volume IDs found: $SOURCE_VOLUME_IDS"
 # STEP 5: Create Volume Clones from the Discovered Source Volumes
 # =============================================================
 
-echo "--- Step 5: Initiating volume cloning of all source volumes ---"
+cho "--- Step 5: Initiating volume cloning of all source volumes ---"
 
 # --- DEBUGGING START ---
 # Action: Enable verbose tracing to see the exact command executed and its error output (stderr).
@@ -140,7 +140,8 @@ set -x
 ibmcloud pi ws tg $PVS_CRN 
 # ------------------------------------------------------------------------
 
-# Action: Use 'volume clone-async create' to initiate the clone task asynchronously [2].
+# Action: Use 'volume clone-async create' to initiate the clone task asynchronously.
+# The command 'ibmcloud pi volume clone-async create' asynchronously creates clone tasks whose status can be queried [1, 2].
 CLONE_TASK_ID=$(ibmcloud pi volume clone-async create $CLONE_NAME_PREFIX \
     --volumes "$SOURCE_VOLUME_IDS" \
     --target-tier $STORAGE_TIER \
@@ -156,44 +157,60 @@ if [ -z "$CLONE_TASK_ID" ]; then
     exit 1
 fi
 
-# Action: Wait for the asynchronous cloning job to complete.
-wait_for_job $CLONE_TASK_ID
+echo "Clone task initiated. Task ID: $CLONE_TASK_ID"
 
-# [NEW LINE ADDED] Insert a delay to allow the volumes to appear in the API list
-sleep 75 
+echo "--- Step 6: Waiting for asynchronous clone task completion ---"
 
-# CRITICAL CHANGE HERE: Find the IDs of the newly created clone volumes.
-# Replace the original line with the corrected line below:
-NEW_CLONE_IDS=$(ibmcloud pi volume list --long --json | jq -r ".volumes[] | select(.name | contains(\"$CLONE_NAME_PREFIX\")) | .volumeID")
-
-# The search for NEW_CLONE_IDS using the new, correct 'contains' logic executes just above here.
-
-if [[ -z "$NEW_CLONE_IDS" ]]
-then
-    echo "=========================================================================="
-    echo "ERROR: Failed to locate newly cloned volume IDs based on unique prefix: $CLONE_NAME_PREFIX."
-    echo "Initiating cleanup to prevent orphaned volumes and accruing charges."
+# Check Clone Task Status: Monitor the status of the asynchronous task until it reports 'completed'.
+# The status of a clone request for the specified clone task ID can be queried using 'ibmcloud pi volume clone-async get' [3, 4].
+while true; do
+    # Use jq to extract the status from the JSON output of the task retrieval command.
+    TASK_STATUS=$(ibmcloud pi volume clone-async get $CLONE_TASK_ID --json | jq -r '.status')
     
-    # 1. Re-run the volume search specifically to collect IDs for deletion.
-    # We use the successful 'contains' logic again to ensure we find all volumes created in this run.
-    CLEANUP_IDS=$(ibmcloud pi volume list --long --json | jq -r ".volumes[] | select(.name | contains(\"$CLONE_NAME_PREFIX\")) | .volumeID")
-
-    if [[ -n "$CLEANUP_IDS" ]]
-    then
-        # 2. Execute bulk deletion using the list of IDs found.
-        # This uses the ibmcloud pi volume bulk-delete command [2, 3].
-        echo "Found volumes for cleanup: $CLEANUP_IDS"
-        ibmcloud pi volume bulk-delete --volumes "$CLEANUP_IDS"
-        echo "Cleanup successful. The unused cloned volumes have been deleted."
+    if [ "$TASK_STATUS" == "completed" ]; then
+        echo "Clone task $CLONE_TASK_ID completed successfully."
+        break
+    elif [ "$TASK_STATUS" == "failed" ] || [ "$TASK_STATUS" == "cancelled" ]; then
+        echo "Error: Clone task $CLONE_TASK_ID failed with status: $TASK_STATUS. Aborting."
+        exit 1
     else
-        echo "No volumes were found matching $CLONE_NAME_PREFIX to delete. Cleanup may not be required."
+        echo "Clone task status: $TASK_STATUS. Waiting 30 seconds..."
+        sleep 30
     fi
+done
 
-    echo "Operation aborted."
-    echo "=========================================================================="
-    # 3. Terminate the script completely
-    exit 1 
+echo "--- Step 7: Discovery Retry Loop (Waiting for API Synchronization) ---"
+
+# This loop addresses the observed latency between backend task completion and frontend API visibility.
+MAX_RETRIES=10
+RETRY_COUNT=0
+# Initialize variable to store the actual volume IDs (UUIDs)
+NEW_CLONE_IDS=""
+
+while [[ -z "$NEW_CLONE_IDS" ]] && [[ $RETRY_COUNT -lt $MAX_RETRIES ]]
+do
+    RETRY_COUNT=$((RETRY_COUNT + 1))
+    echo "Attempt $RETRY_COUNT of $MAX_RETRIES: Searching for volumes using prefix '$CLONE_NAME_PREFIX'..."
+    
+    # Action: Search the full volume list and filter by the unique prefix, extracting the required Volume ID (UUID).
+    NEW_CLONE_IDS=$(ibmcloud pi volume list --long --json | \
+        jq -r ".volumes[] | select(.name | contains(\"$CLONE_NAME_PREFIX\")) | .volumeID")
+
+    if [[ -z "$NEW_CLONE_IDS" ]]
+    then
+        # API cache has not updated yet. Wait 15 seconds before trying again.
+        echo "Volumes not yet visible in the API inventory. Waiting 15 seconds..."
+        sleep 15
+    fi
+done
+
+# Final check after the loop finishes
+if [[ -z "$NEW_CLONE_IDS" ]]; then
+    echo "CRITICAL ERROR: Failed to locate cloned volume IDs after waiting 150 seconds. API synchronization failed. Aborting."
+    exit 1
 fi
+
+echo "Discovery successful! Located Volume IDs: $NEW_CLONE_IDS"
 
 # Action: Designate the Boot Volume and Data Volumes.
 # ASSUMPTION: The first ID found is the boot volume (Load Source).
