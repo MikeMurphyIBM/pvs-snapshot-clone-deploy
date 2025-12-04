@@ -296,15 +296,65 @@ echo "New Data Volume IDs: $CLONE_DATA_IDS"
 # STEP 6: Attach Cloned Volumes to the Empty LPAR
 # =============================================================
 
-# --- Re-target and LPAR Status Check Retry Loop ---
+# Define the known name of the LPAR
+LPAR_NAME="empty-ibmi-lpar"
 
-# IMPORTANT: Re-target the workspace to ensure CLI context is sound.
-ibmcloud pi ws target "$PVS_CRN" || { echo "ERROR: Failed to re-target PowerVS workspace $PVS_CRN."; exit 1; }
+echo "--- Retrieving current UUID for LPAR: $LPAR_NAME ---"
+
+# Command: ibmcloud pi instance list --json lists all instances [3, 4].
+# We pipe the JSON output to jq to filter by name and extract the current instance ID.
+# .pvmInstances[] is the array containing the instances in the list output [3] (implied by command family).
+LPAR_ID=$(ibmcloud pi instance list --json 2>/dev/null | \
+          jq -r ".pvmInstances[] | select(.name == \"$LPAR_NAME\") | .id")
+
+# Check if the ID was successfully retrieved and is not empty
+if [[ -z "$LPAR_ID" ]]; then
+    echo "FATAL ERROR: Could not find an active PVM Instance named '$LPAR_NAME' in the current workspace."
+    echo "Action aborted. Please verify the instance status using 'ibmcloud pi instance list'."
+    exit 1
+else
+    echo "SUCCESS: LPAR Name '$LPAR_NAME' successfully resolved to current UUID: $LPAR_ID"
+    echo "The script will now use this UUID for subsequent operations."
+fi
+
+
+# Define the Instance ID (replace LPAR_NAME with LPAR_ID if retrieved previously)
+# If LPAR_ID was retrieved via 'pi instance list' and jq (as suggested previously), use it.
+# If not, fall back to the LPAR_NAME. For security against stale cache, using the UUID is recommended.
+INSTANCE_IDENTIFIER="${LPAR_ID:-$LPAR_NAME}" 
+
+echo "--- Attaching volumes to instance $INSTANCE_IDENTIFIER ---"
+
+# Base command structure: ibmcloud pi instance volume attach INSTANCE_ID --boot-volume BOOT_VOLUME [--volumes DATA_VOLUMES]
+
+ATTACH_CMD="ibmcloud pi instance volume attach $INSTANCE_IDENTIFIER --boot-volume $CLONE_BOOT_ID"
+
+# Conditionally append data volumes if they exist
+if [ ! -z "$CLONE_DATA_IDS" ]; then
+    ATTACH_CMD="$ATTACH_CMD --volumes $CLONE_DATA_IDS"
+    echo "Attaching boot volume ($CLONE_BOOT_ID) and data volumes ($CLONE_DATA_IDS)."
+else
+    echo "Attaching only the boot volume ($CLONE_BOOT_ID)."
+fi
+
+# Execute the attachment command
+# The '|| { ... }' block ensures the script exits if the command fails immediately (e.g., syntax error, connection issue).
+$ATTACH_CMD || { 
+    echo "FATAL ERROR: Failed to execute volume attachment command."
+    exit 1
+}
+
+echo "Volume attachment command initiated successfully."
+
+# Note: The script should immediately transition into the polling loop (your subsequent block)
+# because the attachment operation is asynchronous [3].
+
+
 
 # --- Configuration Variables (Adjust as needed) ---
 # Assuming LPAR_NAME holds the instance identifier/name (e.g., "empty-ibmi-lpar")
 LPAR_NAME="empty-ibmi-lpar" 
-LPAR_ID="$LPAR_NAME" 
+
 
 POLL_INTERVAL=90        # Check status every 90 seconds (adjust based on expected wait time)
 EXPECTED_STATUS="SHUTOFF" # The required stable state after volume attachment completes.
@@ -318,7 +368,7 @@ while true; do
     
     # Use 'ibmcloud pi instance get' command to retrieve the current state of the VSI.
     # The --json flag is essential for parsing the output.
-    STATUS_JSON=$(ibmcloud pi instance get "$LPAR_ID" --json 2>/dev/null)
+    STATUS_JSON=$(ibmcloud pi instance get "$LPAR_NAME" --json 2>/dev/null)
     
     # Extract the '.status' field using 'jq', convert to uppercase, and strip whitespace.
     CURRENT_STATUS=$(echo "$STATUS_JSON" | jq -r '.status' | tr '[:lower:]' '[:upper:]' | tr -d '[:space:].')
