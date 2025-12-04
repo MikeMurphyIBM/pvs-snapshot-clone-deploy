@@ -235,7 +235,7 @@ echo "--- Step 6: Waiting for asynchronous clone task completion ---"
 # The status of a clone request for the specified clone task ID can be queried using 'ibmcloud pi volume clone-async get' [3, 4].
 while true; do
     # Use jq to extract the status from the JSON output of the task retrieval command.
-    TASK_STATUS=$(ibmcloud pi volume clone-async get $CLONE_TASK_ID --json | jq -r '.status')
+    TASK_STATUS=$(ibmcloud pi volume clone-async get "$CLONE_TASK_ID" --json | jq -r '.status')
     
     if [ "$TASK_STATUS" == "completed" ]; then
         echo "Clone task $CLONE_TASK_ID completed successfully."
@@ -398,40 +398,6 @@ while true; do
 done
 
 echo "--- Proceeding to LPAR boot configuration and start ---"
-
-
-# --- Step 3: Dynamic Polling Loop: Wait for Attachment Completion (Task State Clearance) ---
-
-echo "Polling started: Waiting for instance $LPAR_NAME to clear task_state and reach $EXPECTED_STATUS status (Checking every ${POLL_INTERVAL} seconds)"
-
-while true; do
-    
-    # Retrieve the current status of the instance [5, 6].
-    STATUS_JSON=$(ibmcloud pi instance get "$LPAR_NAME" --json 2>/dev/null)
-    
-    # Extract status, convert to uppercase, and strip whitespace for robust comparison.
-    CURRENT_STATUS=$(echo "$STATUS_JSON" | jq -r '.status' | tr '[:lower:]' '[:upper:]' | tr -d '[:space:].')
-
-    if [[ "$CURRENT_STATUS" == "$EXPECTED_STATUS" ]]; then
-        # The volume operation is complete and the instance is in the stable SHUTOFF state.
-        echo "SUCCESS: Instance $LPAR_NAME is now in status $CURRENT_STATUS. Proceeding to start."
-        break  # Exit the while loop to proceed to the next step
-        
-    elif [[ "$CURRENT_STATUS" == "$ERROR_STATUS_1" || "$CURRENT_STATUS" == "$ERROR_STATUS_2" ]]; then
-        echo "FATAL ERROR: Instance status is $CURRENT_STATUS. The volume attachment or LPAR state has failed. Exiting script."
-        exit 1
-        
-    elif [[ -z "$CURRENT_STATUS" || "$CURRENT_STATUS" == "NULL" ]]; then
-        # Handle cases where status extraction fails temporarily
-        echo "Warning: Instance status temporarily unavailable or NULL. Waiting ${POLL_INTERVAL} seconds..."
-        sleep $POLL_INTERVAL
-        
-    else
-        # Status is still transitional (e.g., ATTACHING_VOLUME, WARNING, etc.)
-        echo "Instance status: $CURRENT_STATUS. Still waiting for target status $EXPECTED_STATUS. Waiting ${POLL_INTERVAL} seconds..."
-        sleep $POLL_INTERVAL
-    fi
-done
 
 # --- Step 4: Start the LPAR (Only runs after polling successfully breaks the loop) ---
 echo "--- Step 4: Starting LPAR $LPAR_NAME in NORMAL mode (Mode A) ---"
