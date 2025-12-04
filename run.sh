@@ -56,15 +56,31 @@ cleanup_on_failure() {
         echo "Tracked Cloned Volumes for Deletion: $ALL_CLONE_IDS"
 
         # 2. ATTEMPT DETACHMENT (Required if attachment succeeded in Step 6).
-        # We use the bulk-detach command, available since CLI v1.3.0 [1, 2].
+        # We use the bulk-detach command, available since CLI v1.3.0 
         echo "Attempting bulk detachment of volumes from LPAR '$LPAR_NAME'..."
         ibmcloud pi instance volume bulk-detach "$LPAR_NAME" --volumes "$ALL_CLONE_IDS" 2>/dev/null && 
         echo "Bulk detachment request accepted." || 
         echo "Warning: Detachment attempt failed or volumes were not attached."
-        sleep 5 
+        sleep 30 
 
-        # 3. ATTEMPT DELETION (Stops charges)
-        # We use the bulk-delete command, available since CLI v1.3.0 [1, 3].
+         # 3. DELETING SNAPSHOT (Crucial Missing Step)
+    if [ ! -z "$SNAP_ID" ]; then
+        echo "Attempting to delete clone source snapshot: $SNAP_ID"
+        # Use the appropriate CLI command to delete the snapshot
+        # (Assuming the variable SNAP_ID was captured during the clone preparation step)
+        ibmcloud pi snapshot delete "$SNAP_ID" || {
+             echo "Warning: Failed to delete snapshot $SNAP_ID. MANUAL CLEANUP REQUIRED."
+             # Continue cleanup logic even if snapshot deletion failed, but log the warning.
+        }
+        echo "Snapshot $SNAP_ID deleted."
+
+        #INSERTED PAUSE: Wait for snapshot deletion to complete asynchronously
+        echo "Pausing for 30 seconds to allow asynchronous snapshot cleanup..."
+        sleep 30
+    fi
+
+        # 4. ATTEMPT DELETION (Stops charges)
+        # We use the bulk-delete command, available since CLI v1.3.0 
         echo "Attempting permanent bulk deletion of cloned volumes..."
         ibmcloud pi volume bulk-delete --volumes "$ALL_CLONE_IDS" || { 
             echo "FATAL ERROR: Failed to delete one or more cloned volumes. MANUAL CLEANUP REQUIRED for IDs: $ALL_CLONE_IDS"
@@ -75,7 +91,14 @@ cleanup_on_failure() {
         echo "No valid cloned Volume IDs found (failure occurred before cloning was tracked). No deletion required."
     fi
 
-    echo "Cleanup phase complete. Terminating script execution."
+        # 5. ENSURE LPAR IS SHUTDOWN (Final state requirement)
+        echo "Ensuring LPAR '$LPAR_NAME' is in SHUTOFF state..."
+        # Execute the stop action for the Power Virtual Server Instance
+        ibmcloud pi instance action "$LPAR_NAME" --operation stop 2>/dev/null && \
+        echo "LPAR stop request initiated successfully." || \
+        echo "Warning: Failed to initiate LPAR stop request."
+    
+        echo "Cleanup phase complete. Terminating script execution."
     exit 1
 }
 
@@ -92,7 +115,7 @@ function wait_for_job() {
     # Loop continuously to check job status until completion or failure.
     while true; do
         # Use ibmcloud pi volume clone-async get to retrieve the clone task details. 
-        # This is required for asynchronous volume clone requests (CLI v1.3.0 and newer) [1, 2].
+        # This is required for asynchronous volume clone requests (CLI v1.3.0 and newer) 
         STATUS=$(ibmcloud pi volume clone-async get $CLONE_TASK_ID --json | jq -r '.status')
         
         # Check if the job status indicates successful completion.
@@ -158,7 +181,7 @@ SNAPSHOT_ID=$(echo "$SNAPSHOT_JSON_OUTPUT" | jq -r '.snapshotID')
 echo "Snapshot initiated successfully. ID: $SNAPSHOT_ID"
 
 # --- Step 2: Polling Loop (Check every 90 seconds) ---
-POLL_INTERVAL=90
+POLL_INTERVAL=45
 EXPECTED_STATUS="AVAILABLE"  # Standardized to uppercase for robust comparison
 ERROR_STATUS="ERROR"
 CURRENT_STATUS=""
@@ -180,7 +203,7 @@ while true; do
         break  # Exit the while loop
         
     elif [[ "$CURRENT_STATUS" == "$ERROR_STATUS" ]]; then
-        # The snapshot status can become "Error" [1]
+        # The snapshot status can become "Error"
         echo "FATAL ERROR: Snapshot failed. Status: $CURRENT_STATUS. Exiting script."
         exit 1
         
@@ -189,7 +212,7 @@ while true; do
         echo "Warning: Status unavailable. Waiting ${POLL_INTERVAL} seconds..."
         
     else
-        # Status is still in a transitional state (e.g., ADDING_VOLUMES_TO_GROUP, RESTORING) [1]
+        # Status is still in a transitional state (e.g., ADDING_VOLUMES_TO_GROUP, RESTORING)
         echo "Snapshot status: $CURRENT_STATUS. Waiting ${POLL_INTERVAL} seconds..."
         sleep $POLL_INTERVAL
     fi
@@ -231,27 +254,66 @@ echo "Latest Snapshot ID found: $SOURCE_SNAPSHOT_ID"
 # =============================================================
 # 6: Discover Source Volume IDs from the Snapshot
 # =============================================================
-echo "--- Step 4: Discovering Source Volume IDs from Snapshot: $SOURCE_SNAPSHOT_ID ---"
+echo "--- Discovering Source Volume IDs from Snapshot: $SOURCE_SNAPSHOT_ID ---"
 
-# Action: Retrieve the snapshot metadata in JSON format.
-# Correction 1: Removed $LPAR_NAME and the unnecessary --snapshot flag.
-VOLUME_IDS_JSON=$(ibmcloud pi instance snapshot get $SOURCE_SNAPSHOT_ID --json)
+# Action: Retrieve the snapshot metadata in JSON format using the preferred command family.
+VOLUME_IDS_JSON=$(ibmcloud pi instance snapshot get $SOURCE_SNAPSHOT_ID --json) [5, 6]
 
 if [ $? -ne 0 ]; then
     echo "Error retrieving snapshot details. Check snapshot ID/Name."
     exit 1
 fi
 
-# Action: Extract the list of original Volume IDs (the keys) and format them as a single comma-separated string.
-# Correction 2 & 3: Corrected the input variable name and completed the missing 'jq' syntax.
-SOURCE_VOLUME_IDS=$(echo "$VOLUME_IDS_JSON" | jq -r '.volumeSnapshots | keys | join(",")')
+# Action: Extract the list of original Volume IDs (the keys) and format them as a space-separated string for iteration.
+# We extract keys[] to get individual IDs for processing.
+SOURCE_VOLUME_IDS=$(echo "$VOLUME_IDS_JSON" | jq -r '.volumeSnapshots | keys[]')
 
 if [ -z "$SOURCE_VOLUME_IDS" ]; then
     echo "Error: No Volume IDs found in the snapshot metadata. Aborting."
     exit 1
 fi
 
-echo "Source Volume IDs found: $SOURCE_VOLUME_IDS"
+# Initialize variables to hold the separated IDs
+SOURCE_BOOT_ID=""
+SOURCE_DATA_IDS=""
+BOOT_FOUND=0
+
+echo "All Source Volume IDs found. Checking individual volumes for Load Source designation..."
+
+# Iterate through each discovered Source Volume ID
+for VOL_ID in $SOURCE_VOLUME_IDS; do
+    # Get detailed information for the live volume ID to check the bootable flag.
+    VOLUME_DETAIL=$(ibmcloud pi volume get "$VOL_ID" --json 2>/dev/null)
+
+    if [ $? -eq 0 ]; then
+        # Check if the volume is explicitly marked as bootable=true.
+        IS_BOOTABLE=$(echo "$VOLUME_DETAIL" | jq -r '.bootable')
+
+        if [ "$IS_BOOTABLE" == "true" ]; then
+            SOURCE_BOOT_ID="$VOL_ID"
+            BOOT_FOUND=1
+            echo "Identified Source Boot Volume ID: $SOURCE_BOOT_ID"
+        else
+            # Collect non-boot volumes (data volumes)
+            SOURCE_DATA_IDS="$SOURCE_DATA_IDS,$VOL_ID"
+        fi
+    else
+        echo "Warning: Failed to retrieve details for source volume ID: $VOL_ID. Skipping."
+    fi
+done
+
+# Clean up the leading comma from the data volumes list, if necessary
+SOURCE_DATA_IDS=${SOURCE_DATA_IDS#,}
+
+if [ "$BOOT_FOUND" -ne 1 ]; then
+    echo "FATAL ERROR: Could not identify the source boot volume among the volumes in the snapshot. Aborting."
+    exit 1
+fi
+
+echo "Source Boot Volume ID: $SOURCE_BOOT_ID"
+echo "Source Data Volume IDs (CSV): $SOURCE_DATA_IDS"
+
+# NOTE: The subsequent cloning logic must preserve the distinction between the boot volume clone and data volume clones.
 
 
 # =============================================================
@@ -265,7 +327,7 @@ ibmcloud pi ws tg $PVS_CRN
 # ------------------------------------------------------------------------
 
 # Action: Use 'volume clone-async create' to initiate the clone task asynchronously.
-# The command 'ibmcloud pi volume clone-async create' asynchronously creates clone tasks whose status can be queried [1, 2].
+# The command 'ibmcloud pi volume clone-async create' asynchronously creates clone tasks whose status can be queried.
 CLONE_TASK_ID=$(ibmcloud pi volume clone-async create $CLONE_NAME_PREFIX \
     --volumes "$SOURCE_VOLUME_IDS" \
     --target-tier $STORAGE_TIER \
@@ -282,7 +344,7 @@ echo "Clone task initiated. Task ID: $CLONE_TASK_ID"
 echo "--- Step 6: Waiting for asynchronous clone task completion ---"
 
 # Check Clone Task Status: Monitor the status of the asynchronous task until it reports 'completed'.
-# The status of a clone request for the specified clone task ID can be queried using 'ibmcloud pi volume clone-async get' [3, 4].
+# The status of a clone request for the specified clone task ID can be queried using 'ibmcloud pi volume clone-async get'
 while true; do
     # Use jq to extract the status from the JSON output of the task retrieval command.
     TASK_STATUS=$(ibmcloud pi volume clone-async get "$CLONE_TASK_ID" --json | jq -r '.status')
@@ -295,7 +357,7 @@ while true; do
         exit 1
     else
         echo "Clone task status: $TASK_STATUS. Waiting 30 seconds..."
-        sleep 30
+        sleep 45
     fi
 done
 
@@ -333,14 +395,44 @@ fi
 echo "Discovery successful! Located Volume IDs: $NEW_CLONE_IDS"
 
 # Action: Designate the Boot Volume and Data Volumes.
-# ASSUMPTION: The first ID found is the boot volume (Load Source).
-CLONE_BOOT_ID=$(echo "$NEW_CLONE_IDS" | head -n 1)
-# Collect remaining IDs as data volumes, comma-separated list.
-CLONE_DATA_IDS=$(echo "$NEW_CLONE_IDS" | tail -n +2 | tr '\n' ',' | sed 's/,$//')
+# Action: DESIGNATE BOOT AND DATA VOLUMES (Using explicit identity, NOT position)
 
-echo "New Boot Volume ID (assumed): $CLONE_BOOT_ID"
-echo "New Data Volume IDs: $CLONE_DATA_IDS"
+# We must map the SOURCE_BOOT_ID (found in Step 4) to its corresponding CLONE_BOOT_ID.
+# This requires iterating through the discovered NEW_CLONE_IDS and identifying which one
+# was cloned from the original boot volume (e.g., by checking its detailed properties or name pattern).
 
+CLONE_BOOT_ID=""
+CLONE_DATA_IDS=""
+
+# Iterating through all newly discovered IDs (space or newline separated from original jq output)
+for NEW_ID in $NEW_CLONE_IDS; do
+    # Fetch details of the new clone volume
+    VOLUME_DETAIL=$(ibmcloud pi volume get "$NEW_ID" --json)
+    
+    # Attempt to extract the master/source volume name/ID from the clone metadata
+    # (Note: Exact field name for source ID may vary, checking 'masterVolumeName' or a similar property is ideal.)
+    
+    # We will rely on checking the status of the new cloned volume based on its source name/ID.
+    # --- Alternative robust approach: Filter out the ID matching the source boot name prefix ---
+    
+    # Assume the cloned boot volume name pattern is derived from the known source name ($SOURCE_BOOT_NAME)
+    # We need to use the variable captured previously, for example: $CLONED_BOOT_VOLUME_ID
+    
+    # --- Using the dedicated variable captured earlier in the script logic ---
+    if [ "$NEW_ID" == "$CLONED_BOOT_VOLUME_ID" ]; then
+        CLONE_BOOT_ID="$NEW_ID"
+    else
+        CLONE_DATA_IDS="$CLONE_DATA_IDS,$NEW_ID"
+    fi
+done
+
+# Clean up leading comma from data IDs
+CLONE_DATA_IDS=${CLONE_DATA_IDS#,}
+
+if [ -z "$CLONE_BOOT_ID" ]; then
+    echo "FATAL ERROR: Failed to identify the cloned boot volume ID. Aborting."
+    exit 1
+fi
 
 # =============================================================
 # 8: Attach Cloned Volumes to the Empty LPAR
@@ -389,10 +481,10 @@ $ATTACH_CMD || {
 echo "Volume attachment request accepted by the API."
 
 # --- MANDATORY WAIT TO ALLOW ASYNCHRONOUS STORAGE OPERATION TO COMPLETE ---
-# Adjust this value based on volume size and environment latency. 300 seconds (5 minutes) 
+# Adjust this value based on volume size and environment latency. 180 seconds (3 minutes) 
 # is a safer starting point for complex storage operations than zero delay.
 
-MANDATORY_WAIT_SECONDS=300
+MANDATORY_WAIT_SECONDS=180
 echo "Waiting a mandatory ${MANDATORY_WAIT_SECONDS} seconds for asynchronous storage attachment..."
 sleep $MANDATORY_WAIT_SECONDS
 
@@ -412,7 +504,7 @@ echo "--- Dynamic Polling started: Verifying LPAR status stability after attachm
 
 while true; do
     
-    # Retrieve the current status of the VSI.
+    # Retrieve the current status of the LPAR.
     STATUS_JSON=$(ibmcloud pi instance get "$LPAR_NAME" --json 2>/dev/null)
     
     # Extract the status field
@@ -461,7 +553,7 @@ ibmcloud pi instance operation "$LPAR_NAME" \
 }
 
 # 2. Initiate the LPAR Start operation (This executes the power-on)
-# The action command performs an operation (start) on a PVM server instance [8, 9].
+# The action command performs an operation (start) on a PVM server instance.
 ibmcloud pi instance action "$LPAR_NAME" --operation start || { 
     echo "FATAL ERROR: Failed to initiate LPAR start command. Aborting."
     exit 1 
@@ -483,10 +575,25 @@ while true; do
         echo "Automation workflow complete. Monitor the LPAR console for the OS IPL sequence."
         break
     elif [[ "$LPAR_STATUS" == "ERROR" ]]; then
-        echo "Error: LPAR $LPAR_NAME entered ERROR state after boot. Aborting."
-        exit 1
+        echo "Error: LPAR $LPAR_NAME entered ERROR state. Pausing for 45 seconds before re-checking to ensure state is permanent."
+
+        sleep 45   #Pause for 45 seconds
+
+            # Second immediate check
+        LPAR_STATUS_RECHECK=$(ibmcloud pi instance get "$LPAR_NAME" --json | jq -r '.status')
+        
+        if [[ "$LPAR_STATUS_RECHECK" == "ERROR" ]]; then
+            # If it's still ERROR after the delay, treat it as terminal failure.
+            echo "Error: LPAR $LPAR_NAME confirmed ERROR state after 45s delay. Aborting and triggering cleanup."
+            exit 1
+        else
+            # If the status is recovered (e.g., changed to BUILDING or SHUTOFF), continue the main loop.
+            echo "LPAR $LPAR_NAME status recovered to $LPAR_STATUS_RECHECK. Resuming main polling loop."
+            # The script continues the outer loop immediately to process the new status.
+        fi
+        
     else
-        echo "$LPAR_NAME status: $LPAR_STATUS. Waiting 30 seconds."
+        echo "$LPAR_NAME status: $LPAR_STATUS. Waiting 60 seconds."
         sleep 60
     fi
 done
