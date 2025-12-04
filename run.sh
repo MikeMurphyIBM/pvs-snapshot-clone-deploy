@@ -68,7 +68,7 @@ cleanup_on_failure() {
         echo "Attempting to delete clone source snapshot: $SNAP_ID"
         # Use the appropriate CLI command to delete the snapshot
         # (Assuming the variable SNAP_ID was captured during the clone preparation step)
-        ibmcloud pi instance snapshot delete "$SNAP_ID" || {
+        ibmcloud pi instance snapshot delete "$SOURCE_SNAPSHOT_ID" || {
              echo "Warning: Failed to delete snapshot $SNAP_ID. MANUAL CLEANUP REQUIRED."
              # Continue cleanup logic even if snapshot deletion failed, but log the warning.
         }
@@ -179,6 +179,9 @@ SNAPSHOT_JSON_OUTPUT=$(ibmcloud pi instance snapshot create "$PRIMARY_LPAR" --na
 # The output contains the unique ID required for subsequent 'get' commands.
 SNAPSHOT_ID=$(echo "$SNAPSHOT_JSON_OUTPUT" | jq -r '.snapshotID')
 echo "Snapshot initiated successfully. ID: $SNAPSHOT_ID"
+
+# *** CRITICAL ASSIGNMENT STEP ***
+SOURCE_SNAPSHOT_ID="$SNAPSHOT_ID"
 
 # --- Step 2: Polling Loop (Check every 90 seconds) ---
 POLL_INTERVAL=45
@@ -433,6 +436,12 @@ if [ -z "$CLONE_BOOT_ID" ]; then
     echo "FATAL ERROR: Failed to identify the cloned boot volume ID. Aborting."
     exit 1
 fi
+
+# --- CRITICAL INSERTION: API SYNCHRONIZATION PAUSE ---
+echo "=========================================="
+echo "Wait 2 minutes to allow cloned volumes to synchronize with the PVS API"
+sleep 2m # Use 'sleep 120' or 'sleep 2m' (2 minutes)
+echo "=========================================="
 
 # =============================================================
 # 8: Attach Cloned Volumes to the Empty LPAR
