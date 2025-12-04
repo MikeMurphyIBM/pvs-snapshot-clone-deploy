@@ -643,21 +643,34 @@ echo "LPAR '$LPAR_NAME' start initiated successfully in NORMAL mode."
 echo "--- Checking LPAR status ---"
 
 while true; do
+    # Action: Get the status of the virtual server instance
     LPAR_STATUS=$(ibmcloud pi instance get "$LPAR_NAME" --json | jq -r '.status')
     
     if [[ "$LPAR_STATUS" == "ACTIVE" ]]; then
         echo "SUCCESS: LPAR $LPAR_NAME is now ACTIVE from PVS API perspective."
-        # REMOVE premature success declaration and break. 
-        # The script should proceed to the next block for OS functional checks (e.g., SSH/RMC).
-        break # <--- Break the loop only to proceed to the next script block
+        echo "Automation workflow successfully completed."
+        # This exits the entire script/shell with a success code (0), preventing cleanup mechanisms.
+        exit 0 
         
     elif [[ "$LPAR_STATUS" == "ERROR" ]]; then
-        # ... (Existing ERROR handling logic remains appropriate)
         echo "Error: LPAR $LPAR_NAME entered ERROR state. Pausing for 45 seconds before re-checking to ensure state is permanent."
-        # ...
+
+        sleep 45   #Pause for 45 seconds
+
+            # Second immediate check
+        LPAR_STATUS_RECHECK=$(ibmcloud pi instance get "$LPAR_NAME" --json | jq -r '.status')
+        
+        if [[ "$LPAR_STATUS_RECHECK" == "ERROR" ]]; then
+            # If it's still ERROR after the delay, treat it as terminal failure.
+            echo "FATAL ERROR: LPAR $LPAR_NAME confirmed ERROR state after 45s delay. Aborting."
+            exit 1 # Abort with failure code
+        else
+            # Status recovered, continue polling
+            echo "LPAR $LPAR_NAME status recovered to $LPAR_STATUS_RECHECK. Resuming main polling loop."
+        fi
         
     else
-        # Handles other transient states like SHUTOFF, WARNING, or BUILDING [1-3]
+        # Handles transient states like SHUTOFF, WARNING, or BUILDING
         echo "$LPAR_NAME status: $LPAR_STATUS. Waiting 60 seconds."
         sleep 60
     fi
