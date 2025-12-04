@@ -366,7 +366,7 @@ ibmcloud pi ws tg $PVS_CRN
 
 # Action: Use 'volume clone-async create' to initiate the clone task asynchronously.
 CLONE_TASK_ID=$(ibmcloud pi volume clone-async create "$CLONE_NAME_PREFIX" \
-    --volumes "$COMMA_SEPARATED_IDS" \
+    --volumes "$SOURCE_BOOT_ID,$COMMA_SEPARATED_IDS" \
     --target-tier $STORAGE_TIER \
     --json | jq -r '.cloneTaskID')
 
