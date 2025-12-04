@@ -449,6 +449,65 @@ sleep 2m # Use 'sleep 120' or 'sleep 2m' (2 minutes)
 echo "=========================================="
 
 # =============================================================
+# 8: Classify the Newly Cloned Volumes (Boot vs. Data)
+# =============================================================
+
+echo "--- Step 8: Classifying newly cloned volumes ---"
+echo "#Action: DESIGNATE BOOT AND DATA VOLUMES by checking the explicit 'bootable' property."
+
+# Initialize classification variables
+CLONE_BOOT_ID=""
+TEMP_DATA_IDS="" 
+BOOT_FOUND_FLAG=0
+
+# Loop through all newly discovered IDs (contained in the $NEW_CLONE_IDS variable)
+for NEW_ID in $NEW_CLONE_IDS; do
+    
+    # Action: Fetch detailed information for the new clone volume using its ID
+    # Command: ibmcloud pi volume get <VOLUME_ID> --json
+    VOLUME_DETAIL=$(ibmcloud pi volume get "$NEW_ID" --json 2>/dev/null)
+
+    # Check for retrieval success
+    if [ $? -ne 0 ]; then
+        echo "Warning: Failed to retrieve details for cloned volume ID: $NEW_ID. Skipping classification."
+        continue
+    fi
+    
+    # Action: Extract the 'bootable' status from the volume details
+    # The bootable property returns 'true' or 'false'
+    IS_BOOTABLE=$(echo "$VOLUME_DETAIL" | jq -r '.bootable')
+    
+    # Classification based on the volume attribute
+    if [ "$IS_BOOTABLE" == "true" ]; then
+        # This volume is explicitly flagged as the boot volume (Load Source)
+        echo "Identified CLONE Boot Volume ID: $NEW_ID"
+        CLONE_BOOT_ID="$NEW_ID"
+        BOOT_FOUND_FLAG=1
+    else
+        # This is a data volume
+        echo "Identified CLONE Data Volume ID: $NEW_ID"
+        # Concatenate data IDs into a temporary list
+        TEMP_DATA_IDS="$TEMP_DATA_IDS,$NEW_ID"
+    fi
+done
+
+# Clean up and assign the final concatenated data volume list
+# This removes any leading comma if the list is populated
+CLONE_DATA_IDS=$(echo "$TEMP_DATA_IDS" | sed 's/,\+/,/g; s/^,//; s/,$//')
+
+# CRITICAL FINAL CHECK: If no boot volume was found, abort the process.
+if [ "$BOOT_FOUND_FLAG" -ne 1 ]; then
+    echo "FATAL ERROR: Failed to identify the cloned boot volume ID using the 'bootable' property. Aborting."
+    exit 1
+fi
+
+echo "Successfully designated CLONE_BOOT_ID: $CLONE_BOOT_ID"
+echo "Successfully designated CLONE_DATA_IDS (CSV): $CLONE_DATA_IDS"
+
+# Script is now ready to use $CLONE_BOOT_ID for the --boot-volume flag 
+# and $CLONE_DATA_IDS for the --volumes flag in the instance volume attach command.
+
+# =============================================================
 # 9: Attach Cloned Volumes to the Empty LPAR
 # =============================================================
 
