@@ -318,81 +318,80 @@ else
 fi
 
 
-# Define the Instance ID (replace LPAR_NAME with LPAR_ID if retrieved previously)
-# If LPAR_ID was retrieved via 'pi instance list' and jq (as suggested previously), use it.
-# If not, fall back to the LPAR_NAME. For security against stale cache, using the UUID is recommended.
+# Define the Instance ID (use UUID if possible, or name if reliable)
+# Placeholder: Use LPAR_ID if retrieved, otherwise fallback to LPAR_NAME
 INSTANCE_IDENTIFIER="${LPAR_ID:-$LPAR_NAME}" 
 
-echo "--- Attaching volumes to instance $INSTANCE_IDENTIFIER ---"
-
-# Base command structure: ibmcloud pi instance volume attach INSTANCE_ID --boot-volume BOOT_VOLUME [--volumes DATA_VOLUMES]
-
+# Construct the full attachment command
 ATTACH_CMD="ibmcloud pi instance volume attach $INSTANCE_IDENTIFIER --boot-volume $CLONE_BOOT_ID"
 
-# Conditionally append data volumes if they exist
 if [ ! -z "$CLONE_DATA_IDS" ]; then
     ATTACH_CMD="$ATTACH_CMD --volumes $CLONE_DATA_IDS"
-    echo "Attaching boot volume ($CLONE_BOOT_ID) and data volumes ($CLONE_DATA_IDS)."
+    echo "Attaching boot volume ($CLONE_BOOT_ID) and data volumes ($CLONE_DATA_IDS) to $INSTANCE_IDENTIFIER."
 else
-    echo "Attaching only the boot volume ($CLONE_BOOT_ID)."
+    echo "Attaching only the boot volume ($CLONE_BOOT_ID) to $INSTANCE_IDENTIFIER."
 fi
 
-# Execute the attachment command
-# The '|| { ... }' block ensures the script exits if the command fails immediately (e.g., syntax error, connection issue).
+# =============================================================
+# STEP 6: Execute Volume Attachment
+# =============================================================
+
+# Execute the asynchronous attachment command
 $ATTACH_CMD || { 
-    echo "FATAL ERROR: Failed to execute volume attachment command."
+    echo "FATAL ERROR: Failed to execute volume attachment command immediately. Exiting."
     exit 1
 }
 
-echo "Volume attachment command initiated successfully."
+echo "Volume attachment request accepted by the API."
 
-# Note: The script should immediately transition into the polling loop (your subsequent block)
-# because the attachment operation is asynchronous [3].
+# --- MANDATORY WAIT TO ALLOW ASYNCHRONOUS STORAGE OPERATION TO COMPLETE ---
+# Adjust this value based on volume size and environment latency. 300 seconds (5 minutes) 
+# is a safer starting point for complex storage operations than zero delay.
 
+MANDATORY_WAIT_SECONDS=300
+echo "Waiting a mandatory ${MANDATORY_WAIT_SECONDS} seconds for asynchronous storage attachment..."
+sleep $MANDATORY_WAIT_SECONDS
 
+# =============================================================
+# STEP 7: Dynamic Polling and Status Verification
+# =============================================================
 
-# --- Configuration Variables (Adjust as needed) ---
-# Assuming LPAR_NAME holds the instance identifier/name (e.g., "empty-ibmi-lpar")
-LPAR_NAME="empty-ibmi-lpar" 
-
-
-POLL_INTERVAL=90        # Check status every 90 seconds (adjust based on expected wait time)
-EXPECTED_STATUS="SHUTOFF" # The required stable state after volume attachment completes.
+LPAR_NAME="$INSTANCE_IDENTIFIER" # Use the identifier for messaging
+POLL_INTERVAL=90        # Check status every 90 seconds
+EXPECTED_STATUS="SHUTOFF"
 ERROR_STATUS_1="ERROR"
 ERROR_STATUS_2="FAILED"
 CURRENT_STATUS=""
 
-echo "--- Step 3: Dynamic Polling started: Waiting for instance $LPAR_NAME to finish volume operation and reach $EXPECTED_STATUS status (Checking every ${POLL_INTERVAL} seconds) ---"
+echo "--- Step 7: Dynamic Polling started: Verifying LPAR status stability after attachment (Checking every ${POLL_INTERVAL} seconds) ---"
 
 while true; do
     
-    # Use 'ibmcloud pi instance get' command to retrieve the current state of the VSI.
-    # The --json flag is essential for parsing the output.
+    # Retrieve the current status of the VSI.
     STATUS_JSON=$(ibmcloud pi instance get "$LPAR_NAME" --json 2>/dev/null)
     
-    # Extract the '.status' field using 'jq', convert to uppercase, and strip whitespace.
+    # Extract the status field
     CURRENT_STATUS=$(echo "$STATUS_JSON" | jq -r '.status' | tr '[:lower:]' '[:upper:]' | tr -d '[:space:].')
 
     # --- 1. Success Check ---
     if [[ "$CURRENT_STATUS" == "$EXPECTED_STATUS" ]]; then
-        echo "SUCCESS: Instance $LPAR_NAME is now in status $CURRENT_STATUS. Volume attachment confirmed complete."
-        break  # Exit the while loop to proceed to the next step (LPAR start configuration)
+        # The mandatory wait should ensure the system is stable now.
+        echo "SUCCESS: Instance $LPAR_NAME is now in status $CURRENT_STATUS. Volume attachment verified complete and stable."
+        break  # Exit the while loop to proceed to the next step
         
     # --- 2. Error Checks ---
     elif [[ "$CURRENT_STATUS" == "$ERROR_STATUS_1" || "$CURRENT_STATUS" == "$ERROR_STATUS_2" ]]; then
-        # This handles cases where the volume attachment itself failed, leaving the LPAR in an ERROR state.
-        echo "FATAL ERROR: Instance status is $CURRENT_STATUS. The prior operation likely failed. Exiting script."
+        echo "FATAL ERROR: Instance status is $CURRENT_STATUS. Volume attachment failed. Exiting script."
         exit 1
         
     elif [[ -z "$CURRENT_STATUS" || "$CURRENT_STATUS" == "NULL" ]]; then
-        # Handle transient API issues or empty responses during the polling cycle.
         echo "Warning: Instance status temporarily unavailable or NULL. Waiting ${POLL_INTERVAL} seconds..."
         sleep $POLL_INTERVAL
         
     # --- 3. Waiting/In Progress ---
     else
-        # This handles transient states like 'attaching_volume' or 'BUILDING'.
-        echo "Instance status: $CURRENT_STATUS. Still waiting for target status $EXPECTED_STATUS. Waiting ${POLL_INTERVAL} seconds..."
+        # Handles any unexpected transient states if the LPAR briefly left SHUTOFF
+        echo "Instance status: $CURRENT_STATUS. Waiting for stable target status $EXPECTED_STATUS. Waiting ${POLL_INTERVAL} seconds..."
         sleep $POLL_INTERVAL
     fi
 done
