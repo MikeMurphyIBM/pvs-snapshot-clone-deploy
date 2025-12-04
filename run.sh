@@ -6,18 +6,15 @@ echo "=== IBMi Snapshot Restore and Boot Script ==="
 # 1. Environment Variables
 # -------------------------
 
-API_KEY="${IBMCLOUD_API_KEY}"       # IAM API Key stored in Code Engine Secret
+API_KEY="${IBMCLOUD_API_KEY}"    # IAM API Key stored in Code Engine Secret
+REGION="us-south"                # IBM Cloud Region
+RESOURCE_GROP_NAME="Default"     # Targeted Resource Group
 PVS_CRN="crn:v1:bluemix:public:power-iaas:dal10:a/21d74dd4fe814dfca20570bbb93cdbff:cc84ef2f-babc-439f-8594-571ecfcbe57a::" # Full PowerVS Workspace CRN
 CLOUD_INSTANCE_ID="cc84ef2f-babc-439f-8594-571ecfcbe57a" # PowerVS Workspace ID
-LPAR_NAME="empty-ibmi-lpar"            # Name of the target LPAR: "empty-ibmi-lpar"
-REGION="us-south"
-PRIMARY_LPAR="get-snapshot"
-
-
-# Storage Tier. Must match the storage tier of the original volumes in the snapshot.
-STORAGE_TIER="tier3"
-# Corrected unique prefix for the new cloned volumes, excluding seconds (%S)
-CLONE_NAME_PREFIX="CLONE-RESTORE-$(date +"%Y%m%d%H%M")"
+LPAR_NAME="empty-ibmi-lpar"  # Name of the target LPAR
+PRIMARY_LPAR="get-snapshot"  # Name of the source LPAR for snapshot
+STORAGE_TIER="tier3"       # Must match the storage tier of the original volumes in the snapshot.
+CLONE_NAME_PREFIX="CLONE-RESTORE-$(date +"%Y%m%d%H%M")"  # Unique prefix for the new cloned volumes, excluding seconds (%S)
 
 
 # -------------------------
@@ -27,11 +24,22 @@ CLONE_NAME_PREFIX="CLONE-RESTORE-$(date +"%Y%m%d%H%M")"
 echo "--- Step 1: Secure Authentication and Workspace Targeting ---"
 
 # 1. Log in to IBM Cloud using an API Key and target the correct Region.
-# The API key approach is ideal for automated deployment operations [1].
-ibmcloud login --apikey $API_KEY -r $REGION || { 
-    echo "ERROR: IBM Cloud login failed. Please verify API key and region."
+# Ensure Login succeeds first
+ibmcloud login --apikey "$API_KEY" -r "$REGION" || { 
+    echo "FATAL ERROR: IBM Cloud login failed during authentication or region targeting."
+    echo "Please verify API key (\$API_KEY) and region (\$REGION)."
     exit 1 
 }
+
+# 2. Target the required Resource Group
+# Resources groups are used to control access to Power Virtual Server resources [8].
+ibmcloud target -g "$RESOURCE_GROUP_NAME" || { 
+    echo "FATAL ERROR: Failed to target resource group '$RESOURCE_GROUP_NAME'."
+    echo "Please verify the Resource Group Name and ensure it exists in the targeted account/region."
+    exit 1 
+}
+
+echo "IBM Cloud login and resource group targeting successful."
 
 # 2. Target the specific Power Virtual Server workspace using its CRN.
 # This explicitly sets the context required for subsequent 'ibmcloud pi' commands.
