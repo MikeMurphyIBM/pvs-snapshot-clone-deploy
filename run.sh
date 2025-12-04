@@ -403,32 +403,29 @@ fi
 
 echo "Discovery successful! Located Volume IDs: $NEW_CLONE_IDS"
 
-# Action: Designate the Boot Volume and Data Volumes.
-# Action: DESIGNATE BOOT AND DATA VOLUMES (Using explicit identity, NOT position)
-
-# We must map the SOURCE_BOOT_ID (found in Step 4) to its corresponding CLONE_BOOT_ID.
-# This requires iterating through the discovered NEW_CLONE_IDS and identifying which one
-# was cloned from the original boot volume (e.g., by checking its detailed properties or name pattern).
+#Action: DESIGNATE BOOT AND DATA VOLUMES by checking the explicit 'bootable' property.
 
 CLONE_BOOT_ID=""
-CLONE_DATA_IDS=""
-TEMP_DATA_IDS="" # Use a temporary variable to hold concatenated data IDs
+TEMP_DATA_IDS="" 
 
-# Iterating through all newly discovered IDs
+# Iterating through all newly discovered IDs (space or newline separated from original jq output)
 for NEW_ID in $NEW_CLONE_IDS; do
+    
     # Fetch details of the new clone volume
+    # CLI command to view volume details: ibmcloud pi volume VOLUME_ID [--json] [5]
     VOLUME_DETAIL=$(ibmcloud pi volume get "$NEW_ID" --json)
 
-    # Extract the 'bootable' status (which is a boolean/string representation in JSON)
+    # Extract the 'bootable' status from the volume details
     IS_BOOTABLE=$(echo "$VOLUME_DETAIL" | jq -r '.bootable')
     
     # Classification based on the actual volume attribute
     if [ "$IS_BOOTABLE" == "true" ]; then
-        # This is the unique boot volume
+        # This volume is flagged as bootable.
         echo "Identified Boot Volume: $NEW_ID"
+        # Since only one volume can be bootable, assign it directly.
         CLONE_BOOT_ID="$NEW_ID"
     else
-        # This is a data volume
+        # This is a data volume (or a non-bootable system volume)
         echo "Identified Data Volume: $NEW_ID"
         TEMP_DATA_IDS="$TEMP_DATA_IDS,$NEW_ID"
     fi
@@ -437,11 +434,11 @@ done
 # Clean up and assign the final concatenated data volume list
 CLONE_DATA_IDS=$(echo "$TEMP_DATA_IDS" | sed 's/,\+/,/g; s/^,//; s/,$//')
 
-# CRITICAL CHECK: Ensure a boot volume was actually found
+# CRITICAL FINAL CHECK: If no boot volume was found, abort the process.
 if [ -z "$CLONE_BOOT_ID" ]; then
     echo "FATAL ERROR: Failed to identify the cloned boot volume ID by checking the 'bootable' property among discovered IDs: $NEW_CLONE_IDS. Aborting."
     exit 1
-fi 
+fi
 
 # --- CRITICAL INSERTION: API SYNCHRONIZATION PAUSE ---
 echo "=========================================="
