@@ -476,7 +476,9 @@ fi
 INSTANCE_IDENTIFIER="${LPAR_ID:-$LPAR_NAME}" 
 
 # Construct the full attachment command
-ATTACH_CMD="ibmcloud pi instance volume attach $INSTANCE_IDENTIFIER --boot-volume $CLONE_BOOT_ID"
+ATTACH_CMD="ibmcloud pi instance volume attach $INSTANCE_IDENTIFIER \
+    --boot-volume $CLONE_BOOT_ID \
+    --volumes $CLONE_DATA_IDS"
 
 if [ ! -z "$CLONE_DATA_IDS" ]; then
     ATTACH_CMD="$ATTACH_CMD --volumes $CLONE_DATA_IDS"
