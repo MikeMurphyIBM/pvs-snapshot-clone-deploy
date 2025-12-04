@@ -43,10 +43,27 @@ cleanup_on_failure() {
     echo "CRITICAL FAILURE DETECTED! Initiating volume rollback and deletion..."
     echo "================================================================"
 
+    # 1. DELETING SNAPSHOT 
+
+    if [ ! -z "$SOURCE_SNAPSHOT_ID" ]; then
+    echo "Attempting to delete clone source snapshot: $SOURCE_SNAPSHOT_ID"
+    # The appropriate command used here requires the unique Snapshot ID [3]
+    ibmcloud pi instance snapshot delete "$SOURCE_SNAPSHOT_ID" || {
+         echo "Warning: Failed to delete snapshot $SOURCE_SNAPSHOT_ID. MANUAL CLEANUP REQUIRED."
+    }
+    echo "Snapshot $SOURCE_SNAPSHOT_ID deleted."
+    echo "Pausing for 30 seconds to allow asynchronous snapshot cleanup..."
+    sleep 30
+fi 
+
+    # 2. Prepare list of IDs for cleanup. This relies on the global variables set in Step 5.
+
     ALL_CLONE_IDS=""
     
-    # 1. Prepare list of IDs for cleanup. This relies on the global variables set in Step 5.
+     # Check if any clone IDs were captured (Boot OR Data)
     if [ ! -z "$CLONE_BOOT_ID" ] || [ ! -z "$CLONE_DATA_IDS" ]; then
+        
+        # Prepare list of IDs for cleanup.
         ALL_CLONE_IDS="$CLONE_BOOT_ID"
         if [ ! -z "$CLONE_DATA_IDS" ]; then
             # Concatenate IDs
@@ -55,39 +72,28 @@ cleanup_on_failure() {
         
         echo "Tracked Cloned Volumes for Deletion: $ALL_CLONE_IDS"
 
-        # 2. ATTEMPT DETACHMENT (Required if attachment succeeded in Step 6).
-        # We use the bulk-detach command, available since CLI v1.3.0 
+        # 3. ATTEMPT DETACHMENT 
+        # Use the bulk-detach command, available since CLI v1.3.0 
         echo "Attempting bulk detachment of volumes from LPAR '$LPAR_NAME'..."
         ibmcloud pi instance volume bulk-detach "$LPAR_NAME" --volumes "$ALL_CLONE_IDS" 2>/dev/null && 
         echo "Bulk detachment request accepted." || 
         echo "Warning: Detachment attempt failed or volumes were not attached."
+        
+        # Pause after asynchronous detachment request
         sleep 30 
-
-         # 3. DELETING SNAPSHOT 
-    if [ ! -z "$SNAP_ID" ]; then
-        echo "Attempting to delete clone source snapshot: $SNAP_ID"
-        # Use the appropriate CLI command to delete the snapshot
-        # (Assuming the variable SNAP_ID was captured during the clone preparation step)
-        ibmcloud pi instance snapshot delete "$SOURCE_SNAPSHOT_ID" || {
-             echo "Warning: Failed to delete snapshot $SNAP_ID. MANUAL CLEANUP REQUIRED."
-             # Continue cleanup logic even if snapshot deletion failed, but log the warning.
-        }
-        echo "Snapshot $SNAP_ID deleted."
-
-        #INSERTED PAUSE: Wait for snapshot deletion to complete asynchronously
-        echo "Pausing for 30 seconds to allow asynchronous snapshot cleanup..."
-        sleep 30
-    fi
-
+    
         # 4. ATTEMPT DELETION (Stops charges)
-        # We use the bulk-delete command, available since CLI v1.3.0 
+        # Use the bulk-delete command, available since CLI v1.3.0 
         echo "Attempting permanent bulk deletion of cloned volumes..."
         ibmcloud pi volume bulk-delete --volumes "$ALL_CLONE_IDS" || { 
+            # Critical step failed: Report manual cleanup required and exit.
             echo "FATAL ERROR: Failed to delete one or more cloned volumes. MANUAL CLEANUP REQUIRED for IDs: $ALL_CLONE_IDS"
             exit 1
         }
         echo "Cloned volumes deleted successfully."
+        
     else
+        # If no boot or data IDs were found, skip cleanup entirely.
         echo "No valid cloned Volume IDs found (failure occurred before cloning was tracked). No deletion required."
     fi
 
@@ -406,36 +412,36 @@ echo "Discovery successful! Located Volume IDs: $NEW_CLONE_IDS"
 
 CLONE_BOOT_ID=""
 CLONE_DATA_IDS=""
+TEMP_DATA_IDS="" # Use a temporary variable to hold concatenated data IDs
 
-# Iterating through all newly discovered IDs (space or newline separated from original jq output)
+# Iterating through all newly discovered IDs
 for NEW_ID in $NEW_CLONE_IDS; do
     # Fetch details of the new clone volume
     VOLUME_DETAIL=$(ibmcloud pi volume get "$NEW_ID" --json)
+
+    # Extract the 'bootable' status (which is a boolean/string representation in JSON)
+    IS_BOOTABLE=$(echo "$VOLUME_DETAIL" | jq -r '.bootable')
     
-    # Attempt to extract the master/source volume name/ID from the clone metadata
-    # (Note: Exact field name for source ID may vary, checking 'masterVolumeName' or a similar property is ideal.)
-    
-    # We will rely on checking the status of the new cloned volume based on its source name/ID.
-    # --- Alternative robust approach: Filter out the ID matching the source boot name prefix ---
-    
-    # Assume the cloned boot volume name pattern is derived from the known source name ($SOURCE_BOOT_NAME)
-    # We need to use the variable captured previously, for example: $CLONED_BOOT_VOLUME_ID
-    
-    # --- Using the dedicated variable captured earlier in the script logic ---
-    if [ "$NEW_ID" == "$CLONED_BOOT_VOLUME_ID" ]; then
+    # Classification based on the actual volume attribute
+    if [ "$IS_BOOTABLE" == "true" ]; then
+        # This is the unique boot volume
+        echo "Identified Boot Volume: $NEW_ID"
         CLONE_BOOT_ID="$NEW_ID"
     else
-        CLONE_DATA_IDS="$CLONE_DATA_IDS,$NEW_ID"
+        # This is a data volume
+        echo "Identified Data Volume: $NEW_ID"
+        TEMP_DATA_IDS="$TEMP_DATA_IDS,$NEW_ID"
     fi
 done
 
-# Clean up leading comma from data IDs
-CLONE_DATA_IDS=${CLONE_DATA_IDS#,}
+# Clean up and assign the final concatenated data volume list
+CLONE_DATA_IDS=$(echo "$TEMP_DATA_IDS" | sed 's/,\+/,/g; s/^,//; s/,$//')
 
+# CRITICAL CHECK: Ensure a boot volume was actually found
 if [ -z "$CLONE_BOOT_ID" ]; then
-    echo "FATAL ERROR: Failed to identify the cloned boot volume ID. Aborting."
+    echo "FATAL ERROR: Failed to identify the cloned boot volume ID by checking the 'bootable' property among discovered IDs: $NEW_CLONE_IDS. Aborting."
     exit 1
-fi
+fi 
 
 # --- CRITICAL INSERTION: API SYNCHRONIZATION PAUSE ---
 echo "=========================================="
