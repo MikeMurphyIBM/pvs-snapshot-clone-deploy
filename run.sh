@@ -301,29 +301,53 @@ echo "New Data Volume IDs: $CLONE_DATA_IDS"
 # IMPORTANT: Re-target the workspace to ensure CLI context is sound.
 ibmcloud pi ws target "$PVS_CRN" || { echo "ERROR: Failed to re-target PowerVS workspace $PVS_CRN."; exit 1; }
 
-LPAR_NAME="empty-ibmi-lpar" # Assuming this variable holds the target name
+# --- Configuration Variables (Adjust as needed) ---
+# Assuming LPAR_NAME holds the instance identifier/name (e.g., "empty-ibmi-lpar")
+LPAR_NAME="empty-ibmi-lpar" 
+LPAR_ID="$LPAR_NAME" 
 
-# --- Step 2: Attaching cloned volumes to $LPAR_NAME ---
-echo "--- Step 2: Attaching cloned volumes to $LPAR_NAME ---"
+POLL_INTERVAL=90        # Check status every 90 seconds (adjust based on expected wait time)
+EXPECTED_STATUS="SHUTOFF" # The required stable state after volume attachment completes.
+ERROR_STATUS_1="ERROR"
+ERROR_STATUS_2="FAILED"
+CURRENT_STATUS=""
 
-# Action: Attach the Load Source (Boot) volume using the --boot-volume flag [2, 3].
-# We build a single command line for all attachments.
-ATTACH_CMD="ibmcloud pi instance volume attach $LPAR_NAME --boot-volume $CLONE_BOOT_ID"
+echo "--- Step 3: Dynamic Polling started: Waiting for instance $LPAR_NAME to finish volume operation and reach $EXPECTED_STATUS status (Checking every ${POLL_INTERVAL} seconds) ---"
 
-if [ ! -z "$CLONE_DATA_IDS" ]; then
-    # Action: Include additional data volumes if they exist.
-    ATTACH_CMD="$ATTACH_CMD --volumes $CLONE_DATA_IDS"
-fi
+while true; do
+    
+    # Use 'ibmcloud pi instance get' command to retrieve the current state of the VSI.
+    # The --json flag is essential for parsing the output.
+    STATUS_JSON=$(ibmcloud pi instance get "$LPAR_ID" --json 2>/dev/null)
+    
+    # Extract the '.status' field using 'jq', convert to uppercase, and strip whitespace.
+    CURRENT_STATUS=$(echo "$STATUS_JSON" | jq -r '.status' | tr '[:lower:]' '[:upper:]' | tr -d '[:space:].')
 
-# Execute the volume attachment command. This is an asynchronous operation.
-# The volume attachment operation requires the LPAR to be shut off [4].
-echo "Executing attachment command: $ATTACH_CMD"
-$ATTACH_CMD || {
-    echo "ERROR: Failed to attach volumes to LPAR. Check LPAR status and volume availability."
-    exit 1
-}
+    # --- 1. Success Check ---
+    if [[ "$CURRENT_STATUS" == "$EXPECTED_STATUS" ]]; then
+        echo "SUCCESS: Instance $LPAR_NAME is now in status $CURRENT_STATUS. Volume attachment confirmed complete."
+        break  # Exit the while loop to proceed to the next step (LPAR start configuration)
+        
+    # --- 2. Error Checks ---
+    elif [[ "$CURRENT_STATUS" == "$ERROR_STATUS_1" || "$CURRENT_STATUS" == "$ERROR_STATUS_2" ]]; then
+        # This handles cases where the volume attachment itself failed, leaving the LPAR in an ERROR state.
+        echo "FATAL ERROR: Instance status is $CURRENT_STATUS. The prior operation likely failed. Exiting script."
+        exit 1
+        
+    elif [[ -z "$CURRENT_STATUS" || "$CURRENT_STATUS" == "NULL" ]]; then
+        # Handle transient API issues or empty responses during the polling cycle.
+        echo "Warning: Instance status temporarily unavailable or NULL. Waiting ${POLL_INTERVAL} seconds..."
+        sleep $POLL_INTERVAL
+        
+    # --- 3. Waiting/In Progress ---
+    else
+        # This handles transient states like 'attaching_volume' or 'BUILDING'.
+        echo "Instance status: $CURRENT_STATUS. Still waiting for target status $EXPECTED_STATUS. Waiting ${POLL_INTERVAL} seconds..."
+        sleep $POLL_INTERVAL
+    fi
+done
 
-echo "Volume attachment initiated. Waiting for operation to finalize..."
+echo "--- Proceeding to LPAR boot configuration and start ---"
 
 
 # --- Step 3: Dynamic Polling Loop: Wait for Attachment Completion (Task State Clearance) ---
