@@ -3,7 +3,7 @@
 echo "=== IBMi Snapshot Restore and Boot Script ==="
 
 # -------------------------
-# 1. Environment Variables
+# 1a. Environment Variables
 # -------------------------
 
 API_KEY="${IBMCLOUD_API_KEY}"    # IAM API Key stored in Code Engine Secret
@@ -11,47 +11,76 @@ REGION="us-south"                # IBM Cloud Region
 RESOURCE_GROP_NAME="Default"     # Targeted Resource Group
 PVS_CRN="crn:v1:bluemix:public:power-iaas:dal10:a/21d74dd4fe814dfca20570bbb93cdbff:cc84ef2f-babc-439f-8594-571ecfcbe57a::" # Full PowerVS Workspace CRN
 CLOUD_INSTANCE_ID="cc84ef2f-babc-439f-8594-571ecfcbe57a" # PowerVS Workspace ID
-LPAR_NAME="empty-ibmi-lpar"  # Name of the target LPAR
-PRIMARY_LPAR="get-snapshot"  # Name of the source LPAR for snapshot
-STORAGE_TIER="tier3"       # Must match the storage tier of the original volumes in the snapshot.
+LPAR_NAME="empty-ibmi-lpar"      # Name of the target LPAR
+PRIMARY_LPAR="get-snapshot"      # Name of the source LPAR for snapshot
+STORAGE_TIER="tier3"             # Must match the storage tier of the original volumes in the snapshot.
 CLONE_NAME_PREFIX="CLONE-RESTORE-$(date +"%Y%m%d%H%M")"  # Unique prefix for the new cloned volumes, excluding seconds (%S)
 
-
 # -------------------------
-# 2. Initialization and Targeting
+# 1B. Dynamic Control Variables (Initialized for Cleanup Tracking)
 # -------------------------
 
-echo "--- Step 1: Secure Authentication and Workspace Targeting ---"
+CLONE_BOOT_ID=""      # Tracks the ID of the dynamically created boot volume
+CLONE_DATA_IDS=""     # Tracks the comma-separated IDs of the dynamically created data volumes
+SOURCE_SNAPSHOT_ID="" # Tracks the ID of the discovered source snapshot
+SOURCE_VOLUME_IDS=""  # Tracks the comma-separated IDs of the volumes contained within the snapshot
+CLONE_TASK_ID=""      # Tracks the ID of the asynchronous cloning job
+JOB_SUCCESS=0         # 0 = Failure (Default), 1 = Success (Set at end of script)
 
-# 1. Log in to IBM Cloud using an API Key and target the correct Region.
-# Ensure Login succeeds first
-ibmcloud login --apikey "$API_KEY" -r "$REGION" || { 
-    echo "FATAL ERROR: IBM Cloud login failed during authentication or region targeting."
-    echo "Please verify API key (\$API_KEY) and region (\$REGION)."
-    exit 1 
+# =======================================================================
+# SECTION 2A: CLEANUP FUNCTION DEFINITION (The entire cleanup operation)
+# =======================================================================
+
+# This function is executed automatically upon any script error (ERR) or exit (EXIT).
+cleanup_on_failure() {
+    # If JOB_SUCCESS is 1, the script finished successfully, skip cleanup.
+    if [ $JOB_SUCCESS -eq 1 ]; then
+        echo "Script finished successfully. No cloned volume cleanup required."
+        return 0
+    fi
+
+    echo "================================================================"
+    echo "CRITICAL FAILURE DETECTED! Initiating volume rollback and deletion..."
+    echo "================================================================"
+
+    ALL_CLONE_IDS=""
+    
+    # 1. Prepare list of IDs for cleanup. This relies on the global variables set in Step 5.
+    if [ ! -z "$CLONE_BOOT_ID" ] || [ ! -z "$CLONE_DATA_IDS" ]; then
+        ALL_CLONE_IDS="$CLONE_BOOT_ID"
+        if [ ! -z "$CLONE_DATA_IDS" ]; then
+            # Concatenate IDs
+            ALL_CLONE_IDS=$(echo "$ALL_CLONE_IDS,$CLONE_DATA_IDS" | sed 's/,\+/,/g; s/^,//; s/,$//')
+        fi
+        
+        echo "Tracked Cloned Volumes for Deletion: $ALL_CLONE_IDS"
+
+        # 2. ATTEMPT DETACHMENT (Required if attachment succeeded in Step 6).
+        # We use the bulk-detach command, available since CLI v1.3.0 [1, 2].
+        echo "Attempting bulk detachment of volumes from LPAR '$LPAR_NAME'..."
+        ibmcloud pi instance volume bulk-detach "$LPAR_NAME" --volumes "$ALL_CLONE_IDS" 2>/dev/null && 
+        echo "Bulk detachment request accepted." || 
+        echo "Warning: Detachment attempt failed or volumes were not attached."
+        sleep 5 
+
+        # 3. ATTEMPT DELETION (Stops charges)
+        # We use the bulk-delete command, available since CLI v1.3.0 [1, 3].
+        echo "Attempting permanent bulk deletion of cloned volumes..."
+        ibmcloud pi volume bulk-delete --volumes "$ALL_CLONE_IDS" || { 
+            echo "FATAL ERROR: Failed to delete one or more cloned volumes. MANUAL CLEANUP REQUIRED for IDs: $ALL_CLONE_IDS"
+            exit 1
+        }
+        echo "Cloned volumes deleted successfully."
+    else
+        echo "No valid cloned Volume IDs found (failure occurred before cloning was tracked). No deletion required."
+    fi
+
+    echo "Cleanup phase complete. Terminating script execution."
+    exit 1
 }
-
-# 2. Target the required Resource Group
-# Resources groups are used to control access to Power Virtual Server resources [8].
-ibmcloud target -g "$RESOURCE_GROUP_NAME" || { 
-    echo "FATAL ERROR: Failed to target resource group '$RESOURCE_GROUP_NAME'."
-    echo "Please verify the Resource Group Name and ensure it exists in the targeted account/region."
-    exit 1 
-}
-
-echo "IBM Cloud login and resource group targeting successful."
-
-# 2. Target the specific Power Virtual Server workspace using its CRN.
-# This explicitly sets the context required for subsequent 'ibmcloud pi' commands.
-ibmcloud pi ws target $PVS_CRN || { 
-    echo "ERROR: Failed to target PowerVS workspace $PVS_CRN."
-    exit 1 
-}
-
-echo "Successfully targeted workspace."
 
 # =============================================================
-# Helper Function for Waiting for Asynchronous Clone Tasks
+# 2b. Helper Function for Waiting for Asynchronous Clone Tasks
 # (Volume cloning is an asynchronous operation handled via a Clone Task ID)
 # =============================================================
 
@@ -82,13 +111,34 @@ function wait_for_job() {
     done
 }
 
+# =======================================================================
+# 2c: TRAP ACTIVATION
+# =======================================================================
+
+# Activate the cleanup function upon any command failure (ERR) or script exit (EXIT)
+trap 'cleanup_on_failure' ERR EXIT
+
+
+# -------------------------
+# 3. Initialization and Targeting
+# -------------------------
+
+echo "--- Secure Authentication and Targeting PowerVS Workspace ---"
+
+ibmcloud login --apikey $API_KEY -r $REGION || { echo "ERROR: IBM Cloud login failed."; exit 1; }
+ibmcloud target -g $RESOURCE_GROP_NAME || { echo "ERROR: Failed to target resource group."; exit 1; }
+ibmcloud pi ws target $PVS_CRN || { echo "ERROR: Failed to target PowerVS workspace $PVS_CRN."; exit 1; }
+echo "Successfully targeted workspace."
+
+echo "Successfully targeted workspace."
+
 
 # =============================================================
-# STEP 3a: Perform the Snapshot Operation on Primary LPAR
+# 4: Perform the Snapshot Operation on Primary LPAR
 # =============================================================
 
 # 1. Generate the unique snapshot name down to the minute (Year, Month, Day, Hour, Minute).
-# This satisfies the requirement that snapshot names must be unique for your workspace [4].
+# This satisfies the requirement that snapshot names must be unique for your workspace.
 SNAPSHOT_NAME="TMP_SNAP_$(date +"%Y%m%d%H%M")"
 
 echo "--- Step 1: Initiating Snapshot on LPAR: $PRIMARY_LPAR ---"
@@ -150,7 +200,7 @@ echo "--- Step 3: Snapshot is available for use ---"
 
 
 # =============================================================
-# STEP 3b: Dynamically Discover the Latest Snapshot ID
+# 5: Dynamically Discover the Latest Snapshot ID
 # =============================================================
 
 echo "--- Step 3: Discovering the latest Snapshot ID in the Workspace (Target LPAR: $LPAR_NAME) ---"
@@ -179,7 +229,7 @@ echo "Latest Snapshot ID found: $SOURCE_SNAPSHOT_ID"
 
 
 # =============================================================
-# STEP 4: Discover Source Volume IDs from the Snapshot
+# 6: Discover Source Volume IDs from the Snapshot
 # =============================================================
 echo "--- Step 4: Discovering Source Volume IDs from Snapshot: $SOURCE_SNAPSHOT_ID ---"
 
@@ -205,16 +255,12 @@ echo "Source Volume IDs found: $SOURCE_VOLUME_IDS"
 
 
 # =============================================================
-# STEP 5: Create Volume Clones from the Discovered Source Volumes
+# 7: Create Volume Clones from the Discovered Source Volumes
 # =============================================================
 
 echo "--- Step 5: Initiating volume cloning of all source volumes ---"
 
-# --- DEBUGGING START ---
-# Action: Enable verbose tracing to see the exact command executed and its error output (stderr).
-set -x
-
-# FIX: Re-target the workspace context (Ensures the PVS context remains active for the clone operation).
+# Re-target the workspace context (Ensures the PVS context remains active for the clone operation).
 ibmcloud pi ws tg $PVS_CRN 
 # ------------------------------------------------------------------------
 
@@ -225,10 +271,6 @@ CLONE_TASK_ID=$(ibmcloud pi volume clone-async create $CLONE_NAME_PREFIX \
     --target-tier $STORAGE_TIER \
     --json | jq -r '.cloneTaskID')
 
-    
-# Action: Disable verbose tracing.
-set +x
-# --- DEBUGGING END ---
 
 if [ -z "$CLONE_TASK_ID" ]; then
     echo "Error creating volume clone task. Aborting."
@@ -301,17 +343,14 @@ echo "New Data Volume IDs: $CLONE_DATA_IDS"
 
 
 # =============================================================
-# STEP 6: Attach Cloned Volumes to the Empty LPAR
+# 8: Attach Cloned Volumes to the Empty LPAR
 # =============================================================
 
-# Define the known name of the LPAR
-LPAR_NAME="empty-ibmi-lpar"
+echo "--- Retrieving current UUID for LPAR: $LPAR_NAME ---"  # Eliminates cached UUID for previously used LPAR of the same name.
 
-echo "--- Retrieving current UUID for LPAR: $LPAR_NAME ---"
-
-# Command: ibmcloud pi instance list --json lists all instances [3, 4].
-# We pipe the JSON output to jq to filter by name and extract the current instance ID.
-# .pvmInstances[] is the array containing the instances in the list output [3] (implied by command family).
+# Command: ibmcloud pi instance list --json lists all instances.
+# The JSON output is piped to jq to filter by name and extract the current instance ID.
+# .pvmInstances[] is the array containing the instances in the list output.
 LPAR_ID=$(ibmcloud pi instance list --json 2>/dev/null | \
           jq -r ".pvmInstances[] | select(.name == \"$LPAR_NAME\") | .id")
 
@@ -326,7 +365,7 @@ else
 fi
 
 
-# Define the Instance ID (use UUID if possible, or name if reliable)
+# Define the Instance ID (use UUID if possible)
 # Placeholder: Use LPAR_ID if retrieved, otherwise fallback to LPAR_NAME
 INSTANCE_IDENTIFIER="${LPAR_ID:-$LPAR_NAME}" 
 
@@ -340,9 +379,6 @@ else
     echo "Attaching only the boot volume ($CLONE_BOOT_ID) to $INSTANCE_IDENTIFIER."
 fi
 
-# =============================================================
-# STEP 6: Execute Volume Attachment
-# =============================================================
 
 # Execute the asynchronous attachment command
 $ATTACH_CMD || { 
@@ -360,8 +396,9 @@ MANDATORY_WAIT_SECONDS=300
 echo "Waiting a mandatory ${MANDATORY_WAIT_SECONDS} seconds for asynchronous storage attachment..."
 sleep $MANDATORY_WAIT_SECONDS
 
+
 # =============================================================
-# STEP 7: Dynamic Polling and Status Verification
+# 9: Dynamic Polling and Status Verification
 # =============================================================
 
 LPAR_NAME="$INSTANCE_IDENTIFIER" # Use the identifier for messaging
@@ -371,7 +408,7 @@ ERROR_STATUS_1="ERROR"
 ERROR_STATUS_2="FAILED"
 CURRENT_STATUS=""
 
-echo "--- Step 7: Dynamic Polling started: Verifying LPAR status stability after attachment (Checking every ${POLL_INTERVAL} seconds) ---"
+echo "--- Dynamic Polling started: Verifying LPAR status stability after attachment (Checking every ${POLL_INTERVAL} seconds) ---"
 
 while true; do
     
@@ -406,11 +443,15 @@ done
 
 echo "--- Proceeding to LPAR boot configuration and start ---"
 
-# --- Step 4: Start the LPAR (Only runs after polling successfully breaks the loop) ---
-echo "--- Step 4: Starting LPAR $LPAR_NAME in NORMAL mode (Mode A) ---"
+# =============================================================
+# 10. Setting LPAR Boot Mode to Normal and Initializing Startup
+# =============================================================
+
+# --- Start the LPAR (Only runs after polling successfully breaks the loop) ---
+echo "--- Setting LPAR $LPAR_NAME to Boot in NORMAL Mode ---"
 
 # 1. Configure the Boot Mode and Operating Mode for the IBM i instance
-# Boot Mode 'a' uses copy A of the Licensed Internal Code (LIC) [7].
+# Boot Mode 'a' uses copy A of the Licensed Internal Code.
 ibmcloud pi instance operation "$LPAR_NAME" \
     --operation-type boot \
     --boot-mode a \
@@ -430,9 +471,9 @@ echo "LPAR '$LPAR_NAME' start initiated successfully in NORMAL mode."
 
 
 # =============================================================
-# STEP 8: Verify LPAR Status is Active
+# 11: Verify LPAR Status is Active
 # =============================================================
-echo "--- Step 8: Checking LPAR status ---"
+echo "--- Checking LPAR status ---"
 
 while true; do
     LPAR_STATUS=$(ibmcloud pi instance get "$LPAR_NAME" --json | jq -r '.status')
@@ -446,6 +487,6 @@ while true; do
         exit 1
     else
         echo "$LPAR_NAME status: $LPAR_STATUS. Waiting 30 seconds."
-        sleep 30
+        sleep 60
     fi
 done
