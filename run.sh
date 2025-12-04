@@ -265,16 +265,15 @@ echo "Latest Snapshot ID found: $SOURCE_SNAPSHOT_ID"
 # =============================================================
 echo "--- Discovering Source Volume IDs from Snapshot: $SOURCE_SNAPSHOT_ID ---"
 
-# Action: Retrieve the snapshot metadata in JSON format using the preferred command family.
+# Action: Retrieve the snapshot metadata in JSON format.
 VOLUME_IDS_JSON=$(ibmcloud pi instance snapshot get $SOURCE_SNAPSHOT_ID --json)
 
 if [ $? -ne 0 ]; then
-    echo "Error retrieving snapshot details. Check snapshot ID/Name."
+    echo "Error retrieving snapshot details. Check snapshot ID: $SOURCE_SNAPSHOT_ID."
     exit 1
 fi
 
-# Action: Extract the list of original Volume IDs (the keys) and format them as a space-separated string for iteration.
-# We extract keys[] to get individual IDs for processing.
+# Action: Extract the list of original Volume IDs (UUIDs) as a space/newline-separated string.
 SOURCE_VOLUME_IDS=$(echo "$VOLUME_IDS_JSON" | jq -r '.volumeSnapshots | keys[]')
 
 if [ -z "$SOURCE_VOLUME_IDS" ]; then
@@ -282,20 +281,24 @@ if [ -z "$SOURCE_VOLUME_IDS" ]; then
     exit 1
 fi
 
-# Initialize variables to hold the separated IDs
+# Initialize variables for classification
 SOURCE_BOOT_ID=""
 SOURCE_DATA_IDS=""
 BOOT_FOUND=0
 
 echo "All Source Volume IDs found. Checking individual volumes for Load Source designation..."
 
+# =============================================================
+# 7. Classify Source Volumes (Boot vs. Data)
+# =============================================================
+
 # Iterate through each discovered Source Volume ID
 for VOL_ID in $SOURCE_VOLUME_IDS; do
-    # Get detailed information for the live volume ID to check the bootable flag.
+    # Get detailed information for the live volume ID to check the bootable flag [1].
     VOLUME_DETAIL=$(ibmcloud pi volume get "$VOL_ID" --json 2>/dev/null)
 
     if [ $? -eq 0 ]; then
-        # Check if the volume is explicitly marked as bootable=true.
+        # Check if the volume is explicitly marked as bootable=true [1].
         IS_BOOTABLE=$(echo "$VOLUME_DETAIL" | jq -r '.bootable')
 
         if [ "$IS_BOOTABLE" == "true" ]; then
@@ -322,23 +325,48 @@ fi
 echo "Source Boot Volume ID: $SOURCE_BOOT_ID"
 echo "Source Data Volume IDs (CSV): $SOURCE_DATA_IDS"
 
-# NOTE: The subsequent cloning logic must preserve the distinction between the boot volume clone and data volume clones.
+# --- Pre-requisite: Dynamically Identify Expected Volume Count ---
+
+# 1. Calculate the Boot Volume Count
+BOOT_COUNT=0
+if [ ! -z "$SOURCE_BOOT_ID" ]; then
+    BOOT_COUNT=1
+    echo "Counted 1 Source Boot Volume ID."
+fi
+
+# 2. Calculate the Data Volume Count
+CLEANED_DATA_IDS=$(echo "$SOURCE_DATA_IDS" | tr ',' ' ' | tr '\n' ' ' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+DATA_COUNT=0
+if [ ! -z "$CLEANED_DATA_IDS" ]; then
+    # Use 'wc -w' (word count) to count the number of IDs present.
+    DATA_COUNT=$(echo "$CLEANED_DATA_IDS" | wc -w)
+fi
+
+echo "Counted $DATA_COUNT Source Data Volume ID(s)."
+
+# 3. Calculate the Total Expected Volume Count
+EXPECTED_VOLUME_COUNT=$((BOOT_COUNT + DATA_COUNT))
+
+echo "--- Calculated Total Expected Volume Count: $EXPECTED_VOLUME_COUNT ---"
 
 
 # =============================================================
-# 7: Create Volume Clones from the Discovered Source Volumes
+# 8: Create Volume Clones from the Discovered Source Volumes
 # =============================================================
 
 echo "--- Step 5: Initiating volume cloning of all source volumes ---"
 
+# CRITICAL FIX: The ibmcloud pi volume clone-async create command requires comma-separated IDs.
+# We must convert the space/newline-separated $SOURCE_VOLUME_IDS string to comma-separated.
+COMMA_SEPARATED_IDS=$(echo "$SOURCE_VOLUME_IDS" | tr ' ' ',')
+
 # Re-target the workspace context (Ensures the PVS context remains active for the clone operation).
 ibmcloud pi ws tg $PVS_CRN 
-# ------------------------------------------------------------------------
 
 # Action: Use 'volume clone-async create' to initiate the clone task asynchronously.
-# The command 'ibmcloud pi volume clone-async create' asynchronously creates clone tasks whose status can be queried.
-CLONE_TASK_ID=$(ibmcloud pi volume clone-async create $CLONE_NAME_PREFIX \
-    --volumes "$SOURCE_VOLUME_IDS" \
+CLONE_TASK_ID=$(ibmcloud pi volume clone-async create "$CLONE_NAME_PREFIX" \
+    --volumes "$COMMA_SEPARATED_IDS" \
     --target-tier $STORAGE_TIER \
     --json | jq -r '.cloneTaskID')
 
@@ -353,7 +381,6 @@ echo "Clone task initiated. Task ID: $CLONE_TASK_ID"
 echo "--- Step 6: Waiting for asynchronous clone task completion ---"
 
 # Check Clone Task Status: Monitor the status of the asynchronous task until it reports 'completed'.
-# The status of a clone request for the specified clone task ID can be queried using 'ibmcloud pi volume clone-async get'
 while true; do
     # Use jq to extract the status from the JSON output of the task retrieval command.
     TASK_STATUS=$(ibmcloud pi volume clone-async get "$CLONE_TASK_ID" --json | jq -r '.status')
@@ -365,80 +392,55 @@ while true; do
         echo "Error: Clone task $CLONE_TASK_ID failed with status: $TASK_STATUS. Aborting."
         exit 1
     else
-        echo "Clone task status: $TASK_STATUS. Waiting 30 seconds..."
-        sleep 45
+        echo "Clone task status: $TASK_STATUS. Waiting $POLL_INTERVAL seconds..."
+        sleep $POLL_INTERVAL
     fi
 done
 
 echo "--- Step 7: Discovery Retry Loop (Waiting for API Synchronization) ---"
 
 # This loop addresses the observed latency between backend task completion and frontend API visibility.
-MAX_RETRIES=10
-RETRY_COUNT=0
-# Initialize variable to store the actual volume IDs (UUIDs)
-NEW_CLONE_IDS=""
 
-while [[ -z "$NEW_CLONE_IDS" ]] && [[ $RETRY_COUNT -lt $MAX_RETRIES ]]
+# Define constants for the retry mechanism
+MAX_RETRIES=20 # Total attempts (e.g., 20 attempts * 15 seconds = 5 minutes total wait)
+RETRY_COUNT=0
+POLL_INTERVAL=15 
+FOUND_COUNT=0
+NEW_CLONE_IDS="" # Initialize or clear discovery variable
+
+while [[ $FOUND_COUNT -ne $EXPECTED_VOLUME_COUNT ]] && [[ $RETRY_COUNT -lt $MAX_RETRIES ]]
 do
     RETRY_COUNT=$((RETRY_COUNT + 1))
     echo "Attempt $RETRY_COUNT of $MAX_RETRIES: Searching for volumes using prefix '$CLONE_NAME_PREFIX'..."
-    
-    # Action: Search the full volume list and filter by the unique prefix, extracting the required Volume ID (UUID).
+
+    # Action: Search volumes, filter by prefix, and extract IDs
     NEW_CLONE_IDS=$(ibmcloud pi volume list --long --json | \
         jq -r ".volumes[] | select(.name | contains(\"$CLONE_NAME_PREFIX\")) | .volumeID")
 
-    if [[ -z "$NEW_CLONE_IDS" ]]
+    FOUND_COUNT=$(echo "$NEW_CLONE_IDS" | wc -w) # Dynamic count check
+
+    if [[ $FOUND_COUNT -ne $EXPECTED_VOLUME_COUNT ]]
     then
-        # API cache has not updated yet. Wait 15 seconds before trying again.
-        echo "Volumes not yet visible in the API inventory. Waiting 15 seconds..."
-        sleep 15
+        # ===> FATAL EXIT CHECK <===
+        if [[ $RETRY_COUNT -ge $MAX_RETRIES ]]; then
+            echo "FATAL ERROR: Only $FOUND_COUNT out of $EXPECTED_VOLUME_COUNT volumes became visible after maximum retries ($MAX_RETRIES). Aborting due to API synchronization failure."
+            exit 1
+        fi
+        
+        # If max retries not hit, wait and try again
+        echo "Found $FOUND_COUNT volume(s). Expected $EXPECTED_VOLUME_COUNT. Waiting $POLL_INTERVAL seconds..."
+        sleep $POLL_INTERVAL
     fi
 done
 
 # Final check after the loop finishes
 if [[ -z "$NEW_CLONE_IDS" ]]; then
-    echo "CRITICAL ERROR: Failed to locate cloned volume IDs after waiting 150 seconds. API synchronization failed. Aborting."
+    echo "CRITICAL ERROR: Failed to locate cloned volume IDs after waiting. API synchronization failed. Aborting."
     exit 1
 fi
 
 echo "Discovery successful! Located Volume IDs: $NEW_CLONE_IDS"
 
-#Action: DESIGNATE BOOT AND DATA VOLUMES by checking the explicit 'bootable' property.
-
-CLONE_BOOT_ID=""
-TEMP_DATA_IDS="" 
-
-# Iterating through all newly discovered IDs (space or newline separated from original jq output)
-for NEW_ID in $NEW_CLONE_IDS; do
-    
-    # Fetch details of the new clone volume
-    # CLI command to view volume details: ibmcloud pi volume VOLUME_ID [--json] [5]
-    VOLUME_DETAIL=$(ibmcloud pi volume get "$NEW_ID" --json)
-
-    # Extract the 'bootable' status from the volume details
-    IS_BOOTABLE=$(echo "$VOLUME_DETAIL" | jq -r '.bootable')
-    
-    # Classification based on the actual volume attribute
-    if [ "$IS_BOOTABLE" == "true" ]; then
-        # This volume is flagged as bootable.
-        echo "Identified Boot Volume: $NEW_ID"
-        # Since only one volume can be bootable, assign it directly.
-        CLONE_BOOT_ID="$NEW_ID"
-    else
-        # This is a data volume (or a non-bootable system volume)
-        echo "Identified Data Volume: $NEW_ID"
-        TEMP_DATA_IDS="$TEMP_DATA_IDS,$NEW_ID"
-    fi
-done
-
-# Clean up and assign the final concatenated data volume list
-CLONE_DATA_IDS=$(echo "$TEMP_DATA_IDS" | sed 's/,\+/,/g; s/^,//; s/,$//')
-
-# CRITICAL FINAL CHECK: If no boot volume was found, abort the process.
-if [ -z "$CLONE_BOOT_ID" ]; then
-    echo "FATAL ERROR: Failed to identify the cloned boot volume ID by checking the 'bootable' property among discovered IDs: $NEW_CLONE_IDS. Aborting."
-    exit 1
-fi
 
 # --- CRITICAL INSERTION: API SYNCHRONIZATION PAUSE ---
 echo "=========================================="
@@ -447,7 +449,7 @@ sleep 2m # Use 'sleep 120' or 'sleep 2m' (2 minutes)
 echo "=========================================="
 
 # =============================================================
-# 8: Attach Cloned Volumes to the Empty LPAR
+# 9: Attach Cloned Volumes to the Empty LPAR
 # =============================================================
 
 echo "--- Retrieving current UUID for LPAR: $LPAR_NAME ---"  # Eliminates cached UUID for previously used LPAR of the same name.
@@ -502,7 +504,7 @@ sleep $MANDATORY_WAIT_SECONDS
 
 
 # =============================================================
-# 9: Dynamic Polling and Status Verification
+# 10: Dynamic Polling and Status Verification
 # =============================================================
 
 LPAR_NAME="$INSTANCE_IDENTIFIER" # Use the identifier for messaging
@@ -548,7 +550,7 @@ done
 echo "--- Proceeding to LPAR boot configuration and start ---"
 
 # =============================================================
-# 10. Setting LPAR Boot Mode to Normal and Initializing Startup
+# 11. Setting LPAR Boot Mode to Normal and Initializing Startup
 # =============================================================
 
 # --- Start the LPAR (Only runs after polling successfully breaks the loop) ---
@@ -575,7 +577,7 @@ echo "LPAR '$LPAR_NAME' start initiated successfully in NORMAL mode."
 
 
 # =============================================================
-# 11: Verify LPAR Status is Active
+# 12: Verify LPAR Status is Active
 # =============================================================
 echo "--- Checking LPAR status ---"
 
