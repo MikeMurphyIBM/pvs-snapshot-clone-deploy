@@ -63,12 +63,12 @@ cleanup_on_failure() {
         echo "Warning: Detachment attempt failed or volumes were not attached."
         sleep 30 
 
-         # 3. DELETING SNAPSHOT (Crucial Missing Step)
+         # 3. DELETING SNAPSHOT 
     if [ ! -z "$SNAP_ID" ]; then
         echo "Attempting to delete clone source snapshot: $SNAP_ID"
         # Use the appropriate CLI command to delete the snapshot
         # (Assuming the variable SNAP_ID was captured during the clone preparation step)
-        ibmcloud pi snapshot delete "$SNAP_ID" || {
+        ibmcloud pi instance snapshot delete "$SNAP_ID" || {
              echo "Warning: Failed to delete snapshot $SNAP_ID. MANUAL CLEANUP REQUIRED."
              # Continue cleanup logic even if snapshot deletion failed, but log the warning.
         }
@@ -257,7 +257,7 @@ echo "Latest Snapshot ID found: $SOURCE_SNAPSHOT_ID"
 echo "--- Discovering Source Volume IDs from Snapshot: $SOURCE_SNAPSHOT_ID ---"
 
 # Action: Retrieve the snapshot metadata in JSON format using the preferred command family.
-VOLUME_IDS_JSON=$(ibmcloud pi instance snapshot get $SOURCE_SNAPSHOT_ID --json) [5, 6]
+VOLUME_IDS_JSON=$(ibmcloud pi instance snapshot get $SOURCE_SNAPSHOT_ID --json)
 
 if [ $? -ne 0 ]; then
     echo "Error retrieving snapshot details. Check snapshot ID/Name."
