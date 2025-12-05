@@ -43,6 +43,30 @@ cleanup_on_failure() {
     echo "CRITICAL FAILURE DETECTED! Initiating volume rollback and deletion..."
     echo "================================================================"
 
+      # --- INSERTED BLOCK: Shutdown LPAR ---
+    LPAR_STATUS=$(ibmcloud pi instance get "$LPAR_NAME" --json | jq -r '.status')
+    if [[ "$LPAR_STATUS" == "ACTIVE" || "$LPAR_STATUS" == "WARNING" ]]; then
+        echo "LPAR $LPAR_NAME is $LPAR_STATUS. Initiating immediate shutdown before volume cleanup."
+        
+        # Command to shut down the LPAR (Immediate shutdown corresponds to 'stop' action)
+        ibmcloud pi instance action "$LPAR_NAME" -o stop || {
+             echo "Warning: Failed to initiate LPAR stop. Continuing cleanup, manual LPAR shutdown may be required."
+        }
+        
+        # Poll and wait for LPAR to reach SHUTOFF state (using logic similar to Step 12)
+        echo "Waiting for LPAR $LPAR_NAME to reach SHUTOFF status..."
+        while true; do
+            LPAR_STATUS=$(ibmcloud pi instance get "$LPAR_NAME" --json | jq -r '.status')
+            if [[ "$LPAR_STATUS" == "SHUTOFF" || "$LPAR_STATUS" == "ERROR" ]]; then
+                echo "LPAR $LPAR_NAME is now $LPAR_STATUS. Ready for volume detach."
+                break
+            fi
+            echo "$LPAR_NAME status: $LPAR_STATUS. Waiting 30 seconds."
+            sleep 30
+        done
+    fi
+    # --- END OF SHUTDOWN BLOCK ---
+
     # 1. DELETING SNAPSHOT 
 
     if [ ! -z "$SOURCE_SNAPSHOT_ID" ]; then
@@ -52,8 +76,8 @@ cleanup_on_failure() {
          echo "Warning: Failed to delete snapshot $SOURCE_SNAPSHOT_ID. MANUAL CLEANUP REQUIRED."
     }
     echo "Snapshot $SOURCE_SNAPSHOT_ID deleted."
-    echo "Pausing for 30 seconds to allow asynchronous snapshot cleanup..."
-    sleep 30
+    echo "Pausing for 20 seconds to allow asynchronous snapshot cleanup..."
+    sleep 20
 fi 
 
     # 2. Prepare list of IDs for cleanup. This relies on the global variables set in Step 5.
@@ -81,6 +105,60 @@ fi
         
         # Pause after asynchronous detachment request
         sleep 30 
+
+            # --- INSERTED BLOCK: Synchronize Detachment Status (Wait for volumes to be detached) ---
+
+    echo "--- Step 3.5: Synchronizing Detachment Status ---"
+    
+    # Define max wait time (e.g., 5 minutes) and polling interval
+    MAX_WAIT=300 
+    POLL_INTERVAL=15
+    CURRENT_WAIT=0
+    
+    LPAR_ID="$LPAR_NAME" # Use the LPAR identifier for querying attached volumes
+    
+    while [ $CURRENT_WAIT -lt $MAX_WAIT ]; do
+        
+        echo "Polling LPAR $LPAR_ID for attached volumes..."
+
+        # Action: List all volumes currently attached to the LPAR and extract only the volume IDs [3, 4]
+        # We redirect stderr (2>/dev/null) in case of minor API hiccups during polling
+        ATTACHED_IDS_JSON=$(ibmcloud pi instance volume list "$LPAR_ID" --json 2>/dev/null)
+
+        # Use jq to extract volume IDs from the attached list
+        ATTACHED_IDS=$(echo "$ATTACHED_IDS_JSON" | jq -r '.volumes[].volumeID')
+
+        # Convert the CSV list of target CLONE IDs into a space-separated string for iteration
+        CLONE_IDS_LIST=$(echo "$ALL_CLONE_IDS" | tr ',' ' ')
+        
+        ATTACHED_CLONES=""
+        DETACHMENT_PENDING=0
+        
+        # Check if any of the target cloned IDs are still present in the currently attached list
+        for CLONE_ID in $CLONE_IDS_LIST; do
+            if echo "$ATTACHED_IDS" | grep -q "$CLONE_ID"; then
+                ATTACHED_CLONES="$ATTACHED_CLONES $CLONE_ID"
+                DETACHMENT_PENDING=1
+            fi
+        done
+        
+        if [ $DETACHMENT_PENDING -eq 0 ]; then
+            echo "SUCCESS: All cloned volumes are successfully detached. Proceeding to deletion."
+            break # Exit the polling loop, ready for deletion.
+        else
+            echo "Detachment pending for cloned volumes: $ATTACHED_CLONES. Waiting $POLL_INTERVAL seconds. Elapsed time: $CURRENT_WAIT/$MAX_WAIT seconds."
+            sleep $POLL_INTERVAL
+            CURRENT_WAIT=$((CURRENT_WAIT + $POLL_INTERVAL))
+        fi
+    done
+    
+    # Critical Final Check: If the loop exited due to timeout, flag a failure.
+    if [ $CURRENT_WAIT -ge $MAX_WAIT ]; then
+        echo "FATAL ERROR: Timeout reached ($MAX_WAIT seconds). Cloned volumes are still attached to LPAR $LPAR_ID. Manual cleanup required."
+        exit 1 # Exit with failure code, preventing the bulk-delete command which would fail anyway.
+    fi
+
+    # --- END OF INSERTED BLOCK ---
     
         # 4. ATTEMPT DELETION (Stops charges)
         # Use the bulk-delete command, available since CLI v1.3.0 
@@ -97,15 +175,7 @@ fi
         echo "No valid cloned Volume IDs found (failure occurred before cloning was tracked). No deletion required."
     fi
 
-        # 5. ENSURE LPAR IS SHUTDOWN (Final state requirement)
-        echo "Ensuring LPAR '$LPAR_NAME' is in SHUTOFF state..."
-        # Execute the stop action for the Power Virtual Server Instance
-        ibmcloud pi instance action "$LPAR_NAME" --operation stop 2>/dev/null && \
-        echo "LPAR stop request initiated successfully." || \
-        echo "Warning: Failed to initiate LPAR stop request."
-    
-        echo "Cleanup phase complete. Terminating script execution."
-    exit 1
+
 }
 
 # =============================================================
