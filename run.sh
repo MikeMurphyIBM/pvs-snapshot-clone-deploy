@@ -518,7 +518,7 @@ sleep 2m # Use 'sleep 120' or 'sleep 2m' (2 minutes)
 echo "=========================================="
 
 # =============================================================
-# SECTION 8: Classify the Newly Cloned Volumes (Boot vs. Data)
+# SECTION 9: Classify the Newly Cloned Volumes (Boot vs. Data)
 # =============================================================
 
 echo "--- Step 8: Classifying newly cloned volumes ---"
@@ -577,7 +577,7 @@ echo "Successfully designated CLONE_DATA_IDS (CSV): $CLONE_DATA_IDS"
 # and $CLONE_DATA_IDS for the --volumes flag in the instance volume attach command.
 
 # =============================================================
-# SECTION 9: Attach Cloned Volumes to the Empty LPAR
+# SECTION 10: Attach Cloned Volumes to the Empty LPAR
 # =============================================================
 
 echo "--- Retrieving current UUID for LPAR: $LPAR_NAME ---"  # Eliminates cached UUID for previously used LPAR of the same name.
@@ -634,7 +634,7 @@ sleep $MANDATORY_WAIT_SECONDS
 
 
 # =============================================================
-# SECTION 10: Dynamic Polling and Status Verification
+# SECTION 11: Dynamic Polling and Status Verification
 # =============================================================
 
 LPAR_NAME="$INSTANCE_IDENTIFIER" # Use the identifier for messaging
@@ -680,7 +680,7 @@ done
 echo "--- Proceeding to LPAR boot configuration and start ---"
 
 # =============================================================
-# SECTION 11. Setting LPAR Boot Mode to Normal and Initializing Startup
+# SECTION 12. Setting LPAR Boot Mode to Normal and Initializing Startup
 # =============================================================
 
 echo "--- Setting LPAR $LPAR_NAME to Boot in NORMAL Mode ---"
@@ -707,7 +707,7 @@ echo "LPAR '$LPAR_NAME' start initiated successfully in NORMAL mode."
 
 
 # =============================================================
-# SECTION 12: Verify LPAR Status is Active
+# SECTION 13: Verify LPAR Status is Active
 # =============================================================
 
 echo "--- Checking LPAR status ---"
