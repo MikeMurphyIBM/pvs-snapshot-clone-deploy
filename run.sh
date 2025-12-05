@@ -361,7 +361,7 @@ echo "All Source Volume IDs found. Checking individual volumes for Load Source d
 # SECTION 7. Classify Source Volumes (Boot vs. Data)
 # =============================================================
 
-echo "--- Step 5: Classifying Source Volumes (Boot vs. Data)
+echo "--- Step 5: Classifying Source Volumes (Boot vs. Data) -----"
 
 # Iterate through each discovered Source Volume ID
 for VOL_ID in $SOURCE_VOLUME_IDS; do
