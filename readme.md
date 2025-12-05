@@ -1,6 +1,5 @@
-This automation script is designed to execute the post-provisioning steps for migrating an IBM i workload via snapshot restoration for the purposes of performing a backup operation, and is 2 of 3 in the series.  It starts exactly where the part 1 (pvs-api-deploy) script ended: with the empty IBMi LPAR already provisioned and in the shutoff state.
-The script dynamically discovers the volumes within the provided snapshot, clones them, attaches the cloned volumes (including the new boot volume) 
-to the LPAR, and initiates an unattended (Normal mode) boot.
+This automation script is designed to execute the post-provisioning steps for migrating an IBM i workload via snapshot restoration for the purposes of performing a backup operation, and is 2 of 3 in the series.  It starts exactly where the part 1 (pvs-api-deploy) script ended with the empty IBMi LPAR already provisioned and in the shutoff state.
+
 
 Required Utilities:
 
