@@ -43,7 +43,7 @@ cleanup_on_failure() {
     echo "CRITICAL FAILURE DETECTED! Initiating volume rollback and deletion..."
     echo "================================================================"
 
-      # --- INSERTED BLOCK: Shutdown LPAR ---
+      # --- Shutdown LPAR ---
     LPAR_STATUS=$(ibmcloud pi instance get "$LPAR_NAME" --json | jq -r '.status')
     if [[ "$LPAR_STATUS" == "ACTIVE" || "$LPAR_STATUS" == "WARNING" ]]; then
         echo "LPAR $LPAR_NAME is $LPAR_STATUS. Initiating immediate shutdown before volume cleanup."
@@ -53,7 +53,7 @@ cleanup_on_failure() {
              echo "Warning: Failed to initiate LPAR stop. Continuing cleanup, manual LPAR shutdown may be required."
         }
         
-        # Poll and wait for LPAR to reach SHUTOFF state (using logic similar to Step 12)
+        # Poll and wait for LPAR to reach SHUTOFF state 
         echo "Waiting for LPAR $LPAR_NAME to reach SHUTOFF status..."
         while true; do
             LPAR_STATUS=$(ibmcloud pi instance get "$LPAR_NAME" --json | jq -r '.status')
@@ -97,7 +97,7 @@ fi
         echo "Tracked Cloned Volumes for Deletion: $ALL_CLONE_IDS"
 
         # 3. ATTEMPT DETACHMENT 
-        # Use the bulk-detach command, available since CLI v1.3.0 
+        # Use the bulk-detach command 
         echo "Attempting bulk detachment of volumes from LPAR '$LPAR_NAME'..."
         ibmcloud pi instance volume bulk-detach "$LPAR_NAME" --volumes "$ALL_CLONE_IDS" 2>/dev/null && 
         echo "Bulk detachment request accepted." || 
@@ -106,9 +106,9 @@ fi
         # Pause after asynchronous detachment request
         sleep 30 
 
-            # --- INSERTED BLOCK: Synchronize Detachment Status (Wait for volumes to be detached) ---
+            # --- Synchronize Detachment Status (Wait for volumes to be detached) ---
 
-    echo "--- Step 3.5: Synchronizing Detachment Status ---"
+    echo "--- Synchronizing Detachment Status ---"
     
     # Define max wait time (e.g., 5 minutes) and polling interval
     MAX_WAIT=300 
@@ -121,7 +121,7 @@ fi
         
         echo "Polling LPAR $LPAR_ID for attached volumes..."
 
-        # Action: List all volumes currently attached to the LPAR and extract only the volume IDs [3, 4]
+        # Action: List all volumes currently attached to the LPAR and extract only the volume IDs
         # We redirect stderr (2>/dev/null) in case of minor API hiccups during polling
         ATTACHED_IDS_JSON=$(ibmcloud pi instance volume list "$LPAR_ID" --json 2>/dev/null)
 
@@ -160,8 +160,8 @@ fi
 
     # --- END OF INSERTED BLOCK ---
     
-        # 4. ATTEMPT DELETION (Stops charges)
-        # Use the bulk-delete command, available since CLI v1.3.0 
+        # 4. ATTEMPT DELETION
+        # Use the bulk-delete command 
         echo "Attempting permanent bulk deletion of cloned volumes..."
         ibmcloud pi volume bulk-delete --volumes "$ALL_CLONE_IDS" || { 
             # Critical step failed: Report manual cleanup required and exit.
@@ -179,7 +179,7 @@ fi
 }
 
 # =============================================================
-# 2b. Helper Function for Waiting for Asynchronous Clone Tasks
+# SECTION 2b. Helper Function for Waiting for Asynchronous Clone Tasks
 # (Volume cloning is an asynchronous operation handled via a Clone Task ID)
 # =============================================================
 
@@ -191,7 +191,7 @@ function wait_for_job() {
     # Loop continuously to check job status until completion or failure.
     while true; do
         # Use ibmcloud pi volume clone-async get to retrieve the clone task details. 
-        # This is required for asynchronous volume clone requests (CLI v1.3.0 and newer) 
+        # This is required for asynchronous volume clone requests
         STATUS=$(ibmcloud pi volume clone-async get $CLONE_TASK_ID --json | jq -r '.status')
         
         # Check if the job status indicates successful completion.
@@ -211,7 +211,7 @@ function wait_for_job() {
 }
 
 # =======================================================================
-# 2c: TRAP ACTIVATION
+# SECTION 2c: TRAP ACTIVATION
 # =======================================================================
 
 # Activate the cleanup function upon any command failure (ERR) or script exit (EXIT)
@@ -219,7 +219,7 @@ trap 'cleanup_on_failure' ERR EXIT
 
 
 # -------------------------
-# 3. Initialization and Targeting
+# SECTION 3. Initialization and Targeting
 # -------------------------
 
 echo "--- Secure Authentication and Targeting PowerVS Workspace ---"
@@ -229,14 +229,13 @@ ibmcloud target -g $RESOURCE_GROP_NAME || { echo "ERROR: Failed to target resour
 ibmcloud pi ws target $PVS_CRN || { echo "ERROR: Failed to target PowerVS workspace $PVS_CRN."; exit 1; }
 echo "Successfully targeted workspace."
 
-echo "Successfully targeted workspace."
 
 
 # =============================================================
-# 4: Perform the Snapshot Operation on Primary LPAR
+# SECTION 4: Perform the Snapshot Operation on Primary LPAR
 # =============================================================
 
-# 1. Generate the unique snapshot name down to the minute (Year, Month, Day, Hour, Minute).
+# Generate the unique snapshot name down to the minute (Year, Month, Day, Hour, Minute).
 # This satisfies the requirement that snapshot names must be unique for your workspace.
 SNAPSHOT_NAME="TMP_SNAP_$(date +"%Y%m%d%H%M")"
 
@@ -302,7 +301,7 @@ echo "--- Step 3: Snapshot is available for use ---"
 
 
 # =============================================================
-# 5: Dynamically Discover the Latest Snapshot ID
+# SECTION 5: Dynamically Discover the Latest Snapshot ID
 # =============================================================
 
 echo "--- Step 3: Discovering the latest Snapshot ID in the Workspace (Target LPAR: $LPAR_NAME) ---"
@@ -331,7 +330,7 @@ echo "Latest Snapshot ID found: $SOURCE_SNAPSHOT_ID"
 
 
 # =============================================================
-# 6: Discover Source Volume IDs from the Snapshot
+# SECTION 6: Discover Source Volume IDs from the Snapshot
 # =============================================================
 echo "--- Discovering Source Volume IDs from Snapshot: $SOURCE_SNAPSHOT_ID ---"
 
@@ -359,16 +358,16 @@ BOOT_FOUND=0
 echo "All Source Volume IDs found. Checking individual volumes for Load Source designation..."
 
 # =============================================================
-# 7. Classify Source Volumes (Boot vs. Data)
+# SECTION 7. Classify Source Volumes (Boot vs. Data)
 # =============================================================
 
 # Iterate through each discovered Source Volume ID
 for VOL_ID in $SOURCE_VOLUME_IDS; do
-    # Get detailed information for the live volume ID to check the bootable flag [1].
+    # Get detailed information for the live volume ID to check the bootable flag
     VOLUME_DETAIL=$(ibmcloud pi volume get "$VOL_ID" --json 2>/dev/null)
 
     if [ $? -eq 0 ]; then
-        # Check if the volume is explicitly marked as bootable=true [1].
+        # Check if the volume is explicitly marked as bootable=true
         IS_BOOTABLE=$(echo "$VOLUME_DETAIL" | jq -r '.bootable')
 
         if [ "$IS_BOOTABLE" == "true" ]; then
@@ -422,12 +421,12 @@ echo "--- Calculated Total Expected Volume Count: $EXPECTED_VOLUME_COUNT ---"
 
 
 # =============================================================
-# 8: Create Volume Clones from the Discovered Source Volumes
+# SECTION 8: Create Volume Clones from the Discovered Source Volumes
 # =============================================================
 
 echo "--- Step 5: Initiating volume cloning of all source volumes ---"
 
-# CRITICAL FIX: The ibmcloud pi volume clone-async create command requires comma-separated IDs.
+# The ibmcloud pi volume clone-async create command requires comma-separated IDs.
 # We must convert the space/newline-separated $SOURCE_VOLUME_IDS string to comma-separated.
 COMMA_SEPARATED_IDS=$(echo "$SOURCE_VOLUME_IDS" | tr ' ' ',')
 
@@ -512,14 +511,14 @@ fi
 echo "Discovery successful! Located Volume IDs: $NEW_CLONE_IDS"
 
 
-# --- CRITICAL INSERTION: API SYNCHRONIZATION PAUSE ---
+# --- API SYNCHRONIZATION PAUSE ---
 echo "=========================================="
 echo "Wait 2 minutes to allow cloned volumes to synchronize with the PVS API"
 sleep 2m # Use 'sleep 120' or 'sleep 2m' (2 minutes)
 echo "=========================================="
 
 # =============================================================
-# 8: Classify the Newly Cloned Volumes (Boot vs. Data)
+# SECTION 8: Classify the Newly Cloned Volumes (Boot vs. Data)
 # =============================================================
 
 echo "--- Step 8: Classifying newly cloned volumes ---"
@@ -578,7 +577,7 @@ echo "Successfully designated CLONE_DATA_IDS (CSV): $CLONE_DATA_IDS"
 # and $CLONE_DATA_IDS for the --volumes flag in the instance volume attach command.
 
 # =============================================================
-# 9: Attach Cloned Volumes to the Empty LPAR
+# SECTION 9: Attach Cloned Volumes to the Empty LPAR
 # =============================================================
 
 echo "--- Retrieving current UUID for LPAR: $LPAR_NAME ---"  # Eliminates cached UUID for previously used LPAR of the same name.
@@ -635,7 +634,7 @@ sleep $MANDATORY_WAIT_SECONDS
 
 
 # =============================================================
-# 10: Dynamic Polling and Status Verification
+# SECTION 10: Dynamic Polling and Status Verification
 # =============================================================
 
 LPAR_NAME="$INSTANCE_IDENTIFIER" # Use the identifier for messaging
@@ -681,14 +680,14 @@ done
 echo "--- Proceeding to LPAR boot configuration and start ---"
 
 # =============================================================
-# 11. Setting LPAR Boot Mode to Normal and Initializing Startup
+# SECTION 11. Setting LPAR Boot Mode to Normal and Initializing Startup
 # =============================================================
 
-# --- Start the LPAR (Only runs after polling successfully breaks the loop) ---
 echo "--- Setting LPAR $LPAR_NAME to Boot in NORMAL Mode ---"
 
 # 1. Configure the Boot Mode and Operating Mode for the IBM i instance
 # Boot Mode 'a' uses copy A of the Licensed Internal Code.
+# Boot Mode Normal is an unattended IPL
 ibmcloud pi instance operation "$LPAR_NAME" \
     --operation-type boot \
     --boot-mode a \
@@ -708,7 +707,7 @@ echo "LPAR '$LPAR_NAME' start initiated successfully in NORMAL mode."
 
 
 # =============================================================
-# 12: Verify LPAR Status is Active
+# SECTION 12: Verify LPAR Status is Active
 # =============================================================
 
 echo "--- Checking LPAR status ---"
@@ -730,14 +729,14 @@ while true; do
     elif [[ "$LPAR_STATUS" == "ERROR" ]]; then
         echo "Error: LPAR $LPAR_NAME entered ERROR state. Pausing for 45 seconds before re-checking to ensure state is permanent."
 
-        sleep 45   #Pause for 45 seconds
+        sleep 120   #Pause for 120 seconds
 
             # Second immediate check
         LPAR_STATUS_RECHECK=$(ibmcloud pi instance get "$LPAR_NAME" --json | jq -r '.status')
         
         if [[ "$LPAR_STATUS_RECHECK" == "ERROR" ]]; then
             # If it's still ERROR after the delay, treat it as terminal failure.
-            echo "FATAL ERROR: LPAR $LPAR_NAME confirmed ERROR state after 45s delay. Aborting."
+            echo "FATAL ERROR: LPAR $LPAR_NAME confirmed ERROR state after 120s delay. Aborting."
             
             # JOB_SUCCESS remains 0, triggering cleanup rollback (if not exiting immediately)
             exit 1 # Abort with failure code
