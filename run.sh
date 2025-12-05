@@ -296,7 +296,7 @@ while true; do
     fi
 done
 
-echo "--- Step 3: Snapshot is available for use ---"
+echo "--- Step 2: Snapshot is available for use ---"
 
 
 
@@ -332,7 +332,7 @@ echo "Latest Snapshot ID found: $SOURCE_SNAPSHOT_ID"
 # =============================================================
 # SECTION 6: Discover Source Volume IDs from the Snapshot
 # =============================================================
-echo "--- Discovering Source Volume IDs from Snapshot: $SOURCE_SNAPSHOT_ID ---"
+echo "--- Step 4: Discovering Source Volume IDs from Snapshot: $SOURCE_SNAPSHOT_ID ---"
 
 # Action: Retrieve the snapshot metadata in JSON format.
 VOLUME_IDS_JSON=$(ibmcloud pi instance snapshot get $SOURCE_SNAPSHOT_ID --json)
@@ -360,6 +360,8 @@ echo "All Source Volume IDs found. Checking individual volumes for Load Source d
 # =============================================================
 # SECTION 7. Classify Source Volumes (Boot vs. Data)
 # =============================================================
+
+echo "--- Step 5: Classifying Source Volumes (Boot vs. Data)
 
 # Iterate through each discovered Source Volume ID
 for VOL_ID in $SOURCE_VOLUME_IDS; do
@@ -394,6 +396,8 @@ fi
 echo "Source Boot Volume ID: $SOURCE_BOOT_ID"
 echo "Source Data Volume IDs (CSV): $SOURCE_DATA_IDS"
 
+echo "--- Step 6: Calculating Total Volume Count"
+
 # --- Pre-requisite: Dynamically Identify Expected Volume Count ---
 
 # 1. Calculate the Boot Volume Count
@@ -424,7 +428,7 @@ echo "--- Calculated Total Expected Volume Count: $EXPECTED_VOLUME_COUNT ---"
 # SECTION 8: Create Volume Clones from the Discovered Source Volumes
 # =============================================================
 
-echo "--- Step 5: Initiating volume cloning of all source volumes ---"
+echo "--- Step 7: Initiating volume cloning of all source volumes ---"
 
 # The ibmcloud pi volume clone-async create command requires comma-separated IDs.
 # We must convert the space/newline-separated $SOURCE_VOLUME_IDS string to comma-separated.
@@ -447,7 +451,7 @@ fi
 
 echo "Clone task initiated. Task ID: $CLONE_TASK_ID"
 
-echo "--- Step 6: Waiting for asynchronous clone task completion ---"
+echo "--- Step 7b: Waiting for asynchronous clone task completion ---"
 
 # Check Clone Task Status: Monitor the status of the asynchronous task until it reports 'completed'.
 while true; do
@@ -466,7 +470,7 @@ while true; do
     fi
 done
 
-echo "--- Step 7: Discovery Retry Loop (Waiting for API Synchronization) ---"
+echo "--- Step 8: Discovery Retry Loop (Waiting for API Synchronization) ---"
 
 # This loop addresses the observed latency between backend task completion and frontend API visibility.
 
@@ -521,7 +525,7 @@ echo "=========================================="
 # SECTION 9: Classify the Newly Cloned Volumes (Boot vs. Data)
 # =============================================================
 
-echo "--- Step 8: Classifying newly cloned volumes ---"
+echo "--- Step 9: Classifying newly cloned volumes ---"
 echo "#Action: DESIGNATE BOOT AND DATA VOLUMES by checking the explicit 'bootable' property."
 
 # Initialize classification variables
@@ -580,7 +584,7 @@ echo "Successfully designated CLONE_DATA_IDS (CSV): $CLONE_DATA_IDS"
 # SECTION 10: Attach Cloned Volumes to the Empty LPAR
 # =============================================================
 
-echo "--- Retrieving current UUID for LPAR: $LPAR_NAME ---"  # Eliminates cached UUID for previously used LPAR of the same name.
+echo "--- Step10: Retrieving current UUID for LPAR: $LPAR_NAME and attaching volumes ---"  # Eliminates cached UUID for previously used LPAR of the same name.
 
 # Command: ibmcloud pi instance list --json lists all instances.
 # The JSON output is piped to jq to filter by name and extract the current instance ID.
@@ -683,7 +687,7 @@ echo "--- Proceeding to LPAR boot configuration and start ---"
 # SECTION 12. Setting LPAR Boot Mode to Normal and Initializing Startup
 # =============================================================
 
-echo "--- Setting LPAR $LPAR_NAME to Boot in NORMAL Mode ---"
+echo "--- Step 11: Setting LPAR $LPAR_NAME to Boot in NORMAL Mode and Initializing Start ---"
 
 # 1. Configure the Boot Mode and Operating Mode for the IBM i instance
 # Boot Mode 'a' uses copy A of the Licensed Internal Code.
@@ -710,7 +714,7 @@ echo "LPAR '$LPAR_NAME' start initiated successfully in NORMAL mode."
 # SECTION 13: Verify LPAR Status is Active
 # =============================================================
 
-echo "--- Checking LPAR status ---"
+echo "--- Step 12: Checking LPAR status ---"
 
 while true; do
     # Action: Get the status of the virtual server instance
