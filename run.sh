@@ -710,6 +710,7 @@ echo "LPAR '$LPAR_NAME' start initiated successfully in NORMAL mode."
 # =============================================================
 # 12: Verify LPAR Status is Active
 # =============================================================
+
 echo "--- Checking LPAR status ---"
 
 while true; do
@@ -719,6 +720,10 @@ while true; do
     if [[ "$LPAR_STATUS" == "ACTIVE" ]]; then
         echo "SUCCESS: LPAR $LPAR_NAME is now ACTIVE from PVS API perspective."
         echo "Automation workflow successfully completed."
+        
+        # CRITICAL FIX: Set the global success flag to 1
+        JOB_SUCCESS=1
+        
         # This exits the entire script/shell with a success code (0), preventing cleanup mechanisms.
         exit 0 
         
@@ -733,6 +738,8 @@ while true; do
         if [[ "$LPAR_STATUS_RECHECK" == "ERROR" ]]; then
             # If it's still ERROR after the delay, treat it as terminal failure.
             echo "FATAL ERROR: LPAR $LPAR_NAME confirmed ERROR state after 45s delay. Aborting."
+            
+            # JOB_SUCCESS remains 0, triggering cleanup rollback (if not exiting immediately)
             exit 1 # Abort with failure code
         else
             # Status recovered, continue polling
