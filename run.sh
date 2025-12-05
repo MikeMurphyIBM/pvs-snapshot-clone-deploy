@@ -35,7 +35,7 @@ JOB_SUCCESS=0         # 0 = Failure (Default), 1 = Success (Set at end of script
 cleanup_on_failure() {
     # If JOB_SUCCESS is 1, the script finished successfully, skip cleanup.
     if [ $JOB_SUCCESS -eq 1 ]; then
-        echo "Script finished successfully. No cloned volume cleanup required."
+        echo "Script finished successfully. No cloned volume cleanup required. IPL will take approximately 15-20 Minutes to complete"
         return 0
     fi
 
