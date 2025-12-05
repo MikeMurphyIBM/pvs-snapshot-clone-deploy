@@ -9,8 +9,8 @@ Required Utilities:
 Script Outline
 
 1.  Define Environment Variables
-2.  Cleanup Function
-3.  Login Inititialization
+2.  Cleanup Function for Failures
+3.  Login Authentication to IBM Cloud
 4.  Create Snapshot on Source LPAR
 5.  Discover Snapshot in Account
 6.  Identify Source Volumes in Snapshot
@@ -19,5 +19,5 @@ Script Outline
 9.  Clasify the Newly Clones Volumes (Boot vs. Data)
 10. Attach Cloned Volumes to the Empty LPAR
 11. Polling and Status Verification prior to Boot
-12. Setting LPAR Boot Mood and Initializaing Startup
-13. Verify LPAR Status is Active 
+12. Setting LPAR Boot Mood and Startup Initializaing 
+13. LPAR Status Verification (Active)
