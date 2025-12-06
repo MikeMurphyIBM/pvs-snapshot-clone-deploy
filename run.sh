@@ -709,9 +709,8 @@ ibmcloud pi instance action "$LPAR_NAME" --operation start || {
 
 echo "LPAR '$LPAR_NAME' start initiated successfully in NORMAL mode."
 
-
 # =============================================================
-# SECTION 13: Verify LPAR Status is Active
+# SECTION 13: Verify LPAR Status is Active and (optionally) trigger snapshot-cleanup
 # =============================================================
 
 echo "--- Step 12: Checking LPAR status ---"
@@ -723,27 +722,54 @@ while true; do
     if [[ "$LPAR_STATUS" == "ACTIVE" ]]; then
         echo "SUCCESS: LPAR $LPAR_NAME is now ACTIVE from PVS API perspective."
         echo "Automation workflow successfully completed."
-        
-        # CRITICAL FIX: Set the global success flag to 1
+
+        # Mark overall job as successful (prevents cleanup_on_failure from running destructive cleanup)
         JOB_SUCCESS=1
-        
-        # This exits the entire script/shell with a success code (0), preventing cleanup mechanisms.
+
+        echo ""
+        echo "--------------------------------------------"
+        echo "Restore & Boot Summary:"
+        echo "--------------------------------------------"
+        echo "Snapshot Taken            : Yes"
+        echo "Volumes Cloned            : Yes"
+        echo "Volumes Attached to LPAR  : Yes"
+        echo "LPAR Boot Mode            : NORMAL (Mode A)"
+        echo "LPAR Final Status         : ACTIVE"
+        echo "--------------------------------------------"
+        echo ""
+
+        # ---- Optional hand-off to next Code Engine job ----
+        # Controlled by RUN_SNAPSHOT_CLEANUP environment variable (Yes / No)
+        echo "--- Evaluating whether to trigger Code Engine job: snapshot-cleanup ---"
+
+        if [[ "${RUN_SNAPSHOT_CLEANUP:-No}" == "Yes" ]]; then
+            echo "RUN_SNAPSHOT_CLEANUP=Yes — launching Code Engine job 'snapshot-cleanup'..."
+
+            # Submit next jobrun; treat failure to submit as an error
+            ibmcloud ce jobrun submit --job snapshot-cleanup || {
+                echo "FATAL ERROR: Failed to trigger Code Engine job 'snapshot-cleanup'."
+                exit 2
+            }
+        else
+            echo "RUN_SNAPSHOT_CLEANUP=No — skipping snapshot-cleanup job trigger."
+        fi
+
+        # All good — exit cleanly
         exit 0 
         
     elif [[ "$LPAR_STATUS" == "ERROR" ]]; then
-        echo "Error: LPAR $LPAR_NAME entered ERROR state. Pausing for 45 seconds before re-checking to ensure state is permanent."
+        echo "Error: LPAR $LPAR_NAME entered ERROR state. Pausing for 120 seconds before re-checking to ensure state is permanent."
 
-        sleep 120   #Pause for 120 seconds
+        sleep 120   # Pause for 120 seconds
 
-            # Second immediate check
+        # Second immediate check
         LPAR_STATUS_RECHECK=$(ibmcloud pi instance get "$LPAR_NAME" --json | jq -r '.status')
         
         if [[ "$LPAR_STATUS_RECHECK" == "ERROR" ]]; then
             # If it's still ERROR after the delay, treat it as terminal failure.
             echo "FATAL ERROR: LPAR $LPAR_NAME confirmed ERROR state after 120s delay. Aborting."
-            
-            # JOB_SUCCESS remains 0, triggering cleanup rollback (if not exiting immediately)
-            exit 1 # Abort with failure code
+            # JOB_SUCCESS remains 0, so cleanup_on_failure will run rollback logic
+            exit 1 
         else
             # Status recovered, continue polling
             echo "LPAR $LPAR_NAME status recovered to $LPAR_STATUS_RECHECK. Resuming main polling loop."
