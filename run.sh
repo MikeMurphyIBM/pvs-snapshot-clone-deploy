@@ -1,5 +1,12 @@
 #!/bin/bash
 
+echo "==============================="
+echo " Job Stage: Snapshot-Clone-Deploy"
+echo " Timestamp: $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+echo " Triggered By: API-Deploy"
+echo "==============================="
+
+
 echo "=== IBMi Snapshot Restore and Boot Script ==="
 
 # -------------------------
