@@ -723,7 +723,7 @@ echo "LPAR '$LPAR_NAME' start initiated successfully in NORMAL mode."
 echo "--- Step 12: Checking LPAR status ---"
 
 while true; do
-    # Action: Get the status of the virtual server instance
+    # Action: Get the status of the LPAR
     LPAR_STATUS=$(ibmcloud pi instance get "$LPAR_NAME" --json | jq -r '.status')
     
     if [[ "$LPAR_STATUS" == "ACTIVE" ]]; then
