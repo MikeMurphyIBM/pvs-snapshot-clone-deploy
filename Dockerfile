@@ -1,40 +1,36 @@
-# Use a lightweight Debian base image
-FROM debian:stable-slim
+# Use Alpine Linux (small base image)
+FROM alpine:3.19
 
-# Set non-interactive mode for smooth dependency installation
-ENV DEBIAN_FRONTEND=noninteractive
+# Install required tools and IBM Cloud CLI dependencies
+RUN apk update && \
+    apk add --no-cache bash curl jq openssl py3-pip python3
 
-# Set HOME and working directory
-ENV HOME=/root
-WORKDIR ${HOME}
+# --- Install IBM Cloud CLI ---
+RUN curl -fsSL https://clis.cloud.ibm.com/install/linux | bash
 
-# -----------------------------------------------------------
-# 1. Install Dependencies (curl, jq, and bash)
-# -----------------------------------------------------------
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    ca-certificates \
-    jq \
-    bash && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
+# Ensure ibmcloud command is visible
+ENV PATH="/root/.bluemix:$PATH"
 
 # -----------------------------------------------------------
-# Install IBM Cloud CLI
-# Then install Power Virtual Server and Code Engine Plugins
+# Install required IBM Cloud plugins
 # -----------------------------------------------------------
-RUN curl -fsSL https://clis.cloud.ibm.com/install/linux | bash && \
-    ibmcloud plugin install power-iaas -f && \
-    ibmcloud plugin install code-engine -f
 
-# Ensure CLI binaries are present in PATH
-ENV PATH="/root/.bluemix:${PATH}"
+# Refresh plugin repo index
+RUN ibmcloud plugin repo-plugins
+
+# Install PVS plugin (needed for snapshot/volume operations)
+RUN ibmcloud plugin install power-iaas -f
+
+# Install Code Engine CLI (needed to submit Job 3)
+RUN ibmcloud plugin install code-engine -f
 
 # -----------------------------------------------------------
-# 2. Add Runtime Script and Define Entrypoint
+# Copy and prepare the Job 2 script
 # -----------------------------------------------------------
-COPY run.logs.sh .
+COPY run.logs.sh /run.logs.sh
 
-RUN chmod +x run.logs.sh
+RUN sed -i 's/\r$//' /run.logs.sh && chmod +x /run.logs.sh
 
-CMD ["/root/run.logs.sh"]
+CMD ["/run.logs.sh"]
+
 
