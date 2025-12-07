@@ -787,4 +787,8 @@ while true; do
         echo "$LPAR_NAME status: $LPAR_STATUS. Waiting 60 seconds."
         sleep 60
     fi
+
+    echo "[SNAP-CLONE-ATTACH-DEPLOY] Job Completed Successfully"
+    echo "[SNAP-CLONE-ATTACH-DEPLOY] Timestamp: $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
 done
