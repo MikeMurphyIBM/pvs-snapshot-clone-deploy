@@ -571,41 +571,60 @@ echo "Successfully designated CLONE_DATA_IDS (CSV): $CLONE_DATA_IDS"
 # =============================================================
 # SECTION 10: Attach Cloned Volumes to the Empty LPAR
 # =============================================================
-
-echo "[SNAP-ATTACH] Attaching storage volumes to new LPAR..."
-echo "[SNAP-ATTACH] Refreshing Instance ID..."
-
+echo "[SNAP-ATTACH] Refreshing instance UUID ..."
 LPAR_ID=$(ibmcloud pi instance list --json \
-  | jq -r ".pvmInstances[] | select(.name == \"$LPAR_NAME\") | .id")
+    | jq -r ".pvmInstances[] | select(.name == \"$LPAR_NAME\") | .id")
 
 if [[ -z "$LPAR_ID" ]]; then
-    echo "[FATAL] Unable to resolve instance ID for $LPAR_NAME"
+    echo "[FATAL] Instance ID could not be resolved for $LPAR_NAME"
     exit 1
 fi
 
 INSTANCE_IDENTIFIER="$LPAR_ID"
-echo "[SNAP-ATTACH] Resolved Instance UUID: $INSTANCE_IDENTIFIER"
+echo "[SNAP-ATTACH] Using instance ID: $INSTANCE_IDENTIFIER"
 
-VOLUME_LIST="$CLONE_BOOT_ID"
-if [[ -n "$CLONE_DATA_IDS" ]]; then
-    VOLUME_LIST="$VOLUME_LIST,$CLONE_DATA_IDS"
+echo ""
+echo "================ Attach Stage ================"
+echo "[SNAP-ATTACH] BOOT VOLUME: $CLONE_BOOT_ID"
+echo "[SNAP-ATTACH] DATA VOLUMES: $CLONE_DATA_IDS"
+echo "================================================"
+echo ""
+
+#
+# Step 1: Attach Boot Volume First
+#
+echo "[SNAP-ATTACH] Attaching BOOT volume first..."
+ibmcloud pi instance volume attach "$INSTANCE_IDENTIFIER" --boot-volume "$CLONE_BOOT_ID"
+BOOT_EXIT=$?
+
+if [[ $BOOT_EXIT -ne 0 ]]; then
+    echo "[FATAL] Failed to attach boot volume"
+    exit 1
 fi
 
-echo "[SNAP-ATTACH] Target Instance: $INSTANCE_IDENTIFIER"
-echo "[SNAP-ATTACH] Volumes to attach: $VOLUME_LIST"
+echo "[SNAP-ATTACH] Boot volume attached OK, waiting 30 seconds for backend sync..."
+sleep 30
 
-echo "[SNAP-ATTACH] Attaching to instance $LPAR_NAME (UUID $INSTANCE_IDENTIFIER)"
+#
+# Step 2: Attach Data Volumes (if exist)
+#
+if [[ -n "$CLONE_DATA_IDS" ]]; then
+    for VOL_ID in ${CLONE_DATA_IDS//,/ }; do
+        echo "[SNAP-ATTACH] Attaching DATA volume: $VOL_ID"
+        ibmcloud pi instance volume attach "$INSTANCE_IDENTIFIER" --volumes "$VOL_ID"
+        DATA_EXIT=$?
 
-ibmcloud pi instance volume attach "$INSTANCE_IDENTIFIER" --volumes "$VOLUME_LIST" || {
-    echo "[ERROR] Attach API rejected request — retrying with short delay..."
-    sleep 10
+        if [[ $DATA_EXIT -ne 0 ]]; then
+            echo "[FATAL] Failed to attach data volume $VOL_ID"
+            exit 1
+        fi
 
-    ibmcloud pi instance volume attach "$INSTANCE_IDENTIFIER" --volumes "$VOLUME_LIST" || {
-        echo "[FATAL] Attach failed after retry"
-        exit 1
-    }
-}
-
+        sleep 20
+    done
+    echo "[SNAP-ATTACH] All data volumes attached successfully."
+else
+    echo "[SNAP-ATTACH] No data volumes to attach."
+fi
 
 
 # =============================================================
