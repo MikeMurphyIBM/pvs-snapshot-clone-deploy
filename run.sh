@@ -749,17 +749,17 @@ while true; do
         # Controlled by RUN_SNAPSHOT_CLEANUP environment variable (Yes / No)
         echo "--- Evaluating whether to trigger Code Engine job: snapshot-cleanup ---"
 
-        if [[ "${RUN_SNAPSHOT_CLEANUP:-No}" == "Yes" ]]; then
-            echo "RUN_SNAPSHOT_CLEANUP=Yes — launching Code Engine job 'snapshot-cleanup'..."
+        if [[ "${RUN_CLEANUP_JOB:-No}" == "Yes" ]]; then
+        echo "Submitting next job: snapshot-cleanup"
 
-            # Submit next jobrun; treat failure to submit as an error
-            ibmcloud ce jobrun submit --job snapshot-cleanup || {
-                echo "FATAL ERROR: Failed to trigger Code Engine job 'snapshot-cleanup'."
-                exit 2
-            }
-        else
-            echo "RUN_SNAPSHOT_CLEANUP=No — skipping snapshot-cleanup job trigger."
-        fi
+        NEXT_RUN=$(ibmcloud ce jobrun submit --job snapshot-cleanup --output json | jq -r '.name')
+
+        echo "Triggered cleanup job instance: $NEXT_RUN"
+    else
+        echo "Skipping cleanup stage."
+    fi
+
+
 
         # All good — exit cleanly
         exit 0 
