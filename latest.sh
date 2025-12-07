@@ -655,9 +655,7 @@ while true; do
         echo "[SNAP-ATTACH] Verified: volumes visible on instance via API"
         break
     fi
-
-
-    #
+    
     # TIMEOUT handling
     #
     if [[ $WAITED -ge $MAX_WAIT ]]; then
@@ -674,31 +672,39 @@ while true; do
 
 done
 
-
-
-
-
-
 # =============================================================
 # BOOT INSTANCE SAFELY
 # =============================================================
 
-echo "[SNAP-ATTACH] Configuring NORMAL boot mode..."
 
-ibmcloud pi instance operation "$INSTANCE_IDENTIFIER" \
-    --operation-type boot \
-    --boot-mode a \
-    --boot-operating-mode normal || {
-    echo "[FATAL] Failed to set boot mode"
-    exit 1
-}
+echo ""
+echo "--- Step 11: Setting LPAR boot mode and initiating startup ---"
 
-echo "[SNAP-ATTACH] Starting instance..."
+# Refresh current instance state
+STATUS=$(ibmcloud pi instance get "$INSTANCE_IDENTIFIER" --json | jq -r '.status')
 
-ibmcloud pi instance action "$INSTANCE_IDENTIFIER" --operation start || {
-    echo "[FATAL] Failed to request LPAR start"
-    exit 1
-}
+if [[ "$STATUS" != "ACTIVE" ]]; then
+    
+    echo "[SNAP-ATTACH] Configuring NORMAL boot mode..."
+
+    ibmcloud pi instance operation "$INSTANCE_IDENTIFIER" \
+        --operation-type boot \
+        --boot-mode a \
+        --boot-operating-mode normal || {
+        echo "[FATAL] Failed to configure IBM i boot operation."
+        exit 1
+    }
+
+    echo "[SNAP-ATTACH] Starting instance..."
+
+    ibmcloud pi instance action "$INSTANCE_IDENTIFIER" --operation start || { 
+        echo "[FATAL] Failed to initiate LPAR start command. Aborting."
+        exit 1 
+    }
+
+    echo "[SNAP-ATTACH] LPAR start command accepted."
+
+fi
 
 
 # =============================================================
@@ -741,25 +747,7 @@ echo "--- Proceeding to LPAR boot configuration and start ---"
 # SECTION 12. Setting LPAR Boot Mode to Normal and Initializing Startup
 # =============================================================
 
-echo "--- Step 11: Setting LPAR $LPAR_NAME to Boot in NORMAL Mode and Initializing Start ---"
 
-# 1. Configure the Boot Mode and Operating Mode for the IBM i instance
-# Boot Mode 'a' uses copy A of the Licensed Internal Code.
-# Boot Mode Normal is an unattended IPL
-ibmcloud pi instance operation "$LPAR_NAME" \
-    --operation-type boot \
-    --boot-mode a \
-    --boot-operating-mode normal || {
-    echo "FATAL ERROR: Failed to configure IBM i boot operation."
-    exit 1
-}
-
-# 2. Initiate the LPAR Start operation (This executes the power-on)
-# The action command performs an operation (start) on a PVM server instance.
-ibmcloud pi instance action "$LPAR_NAME" --operation start || { 
-    echo "FATAL ERROR: Failed to initiate LPAR start command. Aborting."
-    exit 1 
-}
 
 echo "LPAR '$LPAR_NAME' start initiated successfully in NORMAL mode."
 
