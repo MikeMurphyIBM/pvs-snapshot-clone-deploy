@@ -1,9 +1,10 @@
 #!/bin/bash
 
-echo "[SNAP-CLONE-ATTACH-DEPLOY] ==============================="
-echo "[SNAP-CLONE-ATTACH-DEPLOY] Job Stage Started"
-echo "[SNAP-CLONE-ATTACH-DEPLOY] Timestamp: $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 echo "[SNAP-ATTACH] ==============================="
+echo "[SNAP-ATTACH] Job Started"
+echo "[SNAP-ATTACH] Timestamp: $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+echo "[SNAP-ATTACH] ==============================="
+
 
 
 
@@ -584,12 +585,7 @@ fi
 echo "Successfully designated CLONE_BOOT_ID: $CLONE_BOOT_ID"
 echo "Successfully designated CLONE_DATA_IDS (CSV): $CLONE_DATA_IDS"
 
-# Script is now ready to use $CLONE_BOOT_ID for the --boot-volume flag 
-# and $CLONE_DATA_IDS for the --volumes flag in the instance volume attach command.
 
-# =============================================================
-# SECTION 10: Attach Cloned Volumes to the Empty LPAR
-# =============================================================
 # =============================================================
 # SECTION 10: Attach Cloned Volumes to the Empty LPAR
 # =============================================================
@@ -781,9 +777,10 @@ while true; do
         else
             echo "Skipping cleanup stage; RUN_CLEANUP_JOB is NOT set to Yes."
         fi
+        
+        echo "[SNAP-ATTACH] Job Completed Successfully"
+        echo "[SNAP-ATTACH] Timestamp: $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
-        echo "[SNAP-CLONE-ATTACH-DEPLOY] Job Completed Successfully"
-        echo "[SNAP-CLONE-ATTACH-DEPLOY] Timestamp: $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
         exit 0 
     elif [[ "$LPAR_STATUS" == "ERROR" ]]; then
         echo "Error: LPAR $LPAR_NAME entered ERROR state. Pausing for 120 seconds before re-checking to ensure state is permanent."
