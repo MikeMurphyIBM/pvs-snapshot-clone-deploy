@@ -233,17 +233,27 @@ done
 # STEP 8: TRIGGER NEXT JOB (conditional)
 # ============================================================
 log_stage "Evaluate triggering snapshot-cleanup job"
+log_stage "Evaluate triggering snapshot-cleanup job"
 
 if [[ "${RUN_CLEANUP_JOB:-No}" == "Yes" ]]; then
-    log_info "Launching snapshot-cleanup"
     
-    NEXT_RUN=$(ibmcloud ce jobrun submit --job snap-attach --output json | jq -r '.name')
+    log_info "Targeting Code Engine project: snapshot-cleanup"
+    ibmcloud code-engine project select --name snapshot-cleanup --quiet
     
-    log_info "Triggered instance: $NEXT_RUN"
-else
-    log_info "Cleanup stage skipped."
-fi
+    log_info "Launching Code Engine job: snapshot-cleanup"
 
+    NEXT_RUN=$(ibmcloud code-engine jobrun submit --job snapshot-cleanup --output json | jq -r '.name')
+
+    if [[ -z "$NEXT_RUN" || "$NEXT_RUN" == "null" ]]; then
+        log_error "Failed submitting snapshot-cleanup job"
+    else
+        log_info "Triggered follow-up job instance: $NEXT_RUN"
+    fi
+
+else
+    log_info "Cleanup stage skipped by configuration (RUN_CLEANUP_JOB=No)"
+fi
 
 log_stage "Job Completed Successfully"
 exit 0
+
