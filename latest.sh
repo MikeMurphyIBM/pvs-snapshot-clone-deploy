@@ -730,7 +730,7 @@ while true; do
         echo "SUCCESS: LPAR $LPAR_NAME is now ACTIVE from PVS API perspective."
         echo "Automation workflow successfully completed."
 
-        # Mark overall job as successful (prevents cleanup_on_failure from running destructive cleanup)
+        # Mark overall job success so rollback will NOT run
         JOB_SUCCESS=1
 
         echo ""
@@ -745,50 +745,45 @@ while true; do
         echo "--------------------------------------------"
         echo ""
 
-        # ---- Optional hand-off to next Code Engine job ----
-        # Controlled by RUN_SNAPSHOT_CLEANUP environment variable (Yes / No)
-        echo "--- Evaluating whether to trigger Code Engine job: snapshot-cleanup ---"
+        echo "--- Evaluating whether to trigger cleanup job ---"
 
-        if [[ "${RUN_CLEANUP_JOB:-No}" == "Yes" ]]; then
-        echo "Submitting next job: snapshot-cleanup"
+        if [[ "${RUN_CLEANUP_JOB:-No}" == "Yes" ]]; then            
+            echo "Switching Code Engine context to snapshot-cleanup project"
 
-        NEXT_RUN=$(ibmcloud ce jobrun submit --job snapshot-cleanup --output json | jq -r '.name')
+            ibmcloud ce project select -n snapshot-cleanup > /dev/null 2>&1 || {
+                echo "ERROR: Unable to select cleanup project snapshot-cleanup"
+                exit 1
+            }
 
-        echo "Triggered cleanup job instance: $NEXT_RUN"
-    else
-        echo "Skipping cleanup stage."
-    fi
+            echo "Submitting Code Engine cleanup job: snapshot-cleanup"
 
+            NEXT_RUN=$(ibmcloud ce jobrun submit --job snapshot-cleanup --output json | jq -r '.name')
 
+            echo "Triggered cleanup instance: $NEXT_RUN"
+        else
+            echo "Skipping cleanup stage; RUN_CLEANUP_JOB is NOT set to Yes."
+        fi
 
-        # All good — exit cleanly
+        echo "[SNAP-CLONE-ATTACH-DEPLOY] Job Completed Successfully"
+        echo "[SNAP-CLONE-ATTACH-DEPLOY] Timestamp: $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
         exit 0 
-        
     elif [[ "$LPAR_STATUS" == "ERROR" ]]; then
         echo "Error: LPAR $LPAR_NAME entered ERROR state. Pausing for 120 seconds before re-checking to ensure state is permanent."
 
-        sleep 120   # Pause for 120 seconds
+        sleep 120
 
-        # Second immediate check
         LPAR_STATUS_RECHECK=$(ibmcloud pi instance get "$LPAR_NAME" --json | jq -r '.status')
         
         if [[ "$LPAR_STATUS_RECHECK" == "ERROR" ]]; then
-            # If it's still ERROR after the delay, treat it as terminal failure.
-            echo "FATAL ERROR: LPAR $LPAR_NAME confirmed ERROR state after 120s delay. Aborting."
-            # JOB_SUCCESS remains 0, so cleanup_on_failure will run rollback logic
+            echo "FATAL ERROR: LPAR $LPAR_NAME confirmed ERROR after retry. Exiting and triggering rollback."
             exit 1 
         else
-            # Status recovered, continue polling
-            echo "LPAR $LPAR_NAME status recovered to $LPAR_STATUS_RECHECK. Resuming main polling loop."
+            echo "LPAR recovered to $LPAR_STATUS_RECHECK—continuing monitoring."
         fi
-        
     else
-        # Handles transient states like SHUTOFF, WARNING, or BUILDING
         echo "$LPAR_NAME status: $LPAR_STATUS. Waiting 60 seconds."
         sleep 60
     fi
 
-    echo "[SNAP-CLONE-ATTACH-DEPLOY] Job Completed Successfully"
-    echo "[SNAP-CLONE-ATTACH-DEPLOY] Timestamp: $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-
 done
+
