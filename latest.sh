@@ -631,27 +631,55 @@ fi
 # WAIT UNTIL VOLUMES ARE ATTACHED BEFORE BOOT
 # =============================================================
 
+JSON=$(ibmcloud pi instance get "$INSTANCE_IDENTIFIER" --json 2>/dev/null)
+
+# normalize null into []
+VOL_LIST=$(echo "$JSON" | jq -r '(.volumes // []) | .[]? | .volumeID')
+
+ATTACHED_BOOT=$(echo "$VOL_LIST" | grep "$CLONE_BOOT_ID" || true)
+
+DATA_MATCH=true
+if [[ -n "$CLONE_DATA_IDS" ]]; then
+    DATA_MATCH=$(echo "$VOL_LIST" | grep "$CLONE_DATA_IDS" || true)
+fi
+
+echo ""
 echo "[SNAP-ATTACH] Waiting for volumes to attach..."
 
-MAX_WAIT=300    # 5 minutes max
-INTERVAL=20
+MAX_WAIT=420   # 20 minutes — snapshot metadata can lag
+INTERVAL=30
 WAITED=0
 
 while true; do
     JSON=$(ibmcloud pi instance get "$INSTANCE_IDENTIFIER" --json 2>/dev/null)
-    VOL_LIST=$(echo "$JSON" | jq -r '(.volumes // []) | .[]?.volumeID')
+
+    VOL_LIST=$(echo "$JSON" \
+        | jq -r '(.volumes // []) | .[]? | .volumeID')
 
     ATTACHED_BOOT=$(echo "$VOL_LIST" | grep "$CLONE_BOOT_ID" || true)
-    ATTACHED_DATA=$(echo "$VOL_LIST" | grep "$CLONE_DATA_IDS" || true)
 
-    if [[ -n "$ATTACHED_BOOT" && ( -z "$CLONE_DATA_IDS" || -n "$ATTACHED_DATA" ) ]]; then
-        echo "[SNAP-ATTACH] Volumes now attached."
+    DATA_MATCH=true
+    if [[ -n "$CLONE_DATA_IDS" ]]; then
+        DATA_MATCH=$(echo "$VOL_LIST" | grep "$CLONE_DATA_IDS" || true)
+    fi
+
+    if [[ -n "$ATTACHED_BOOT" && ( -z "$CLONE_DATA_IDS" || -n "$DATA_MATCH" ) ]]; then
+        echo "[SNAP-ATTACH] Volumes now attached and visible to API"
         break
     fi
 
-    echo "[SNAP-ATTACH] Volumes not ready yet...waiting"
+    if [[ $WAITED -ge $MAX_WAIT ]]; then
+        echo "[FATAL] Volumes never reflected in API after $MAX_WAIT seconds"
+        echo "They might actually be attached — investigate manually"
+        exit 22
+    fi
+
+    echo "[SNAP-ATTACH] Volumes not ready yet...checking again"
     sleep $INTERVAL
+    WAITED=$((WAITED+INTERVAL))
 done
+
+
 
 
 # =============================================================
