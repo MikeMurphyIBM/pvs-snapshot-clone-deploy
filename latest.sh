@@ -631,53 +631,50 @@ fi
 # WAIT UNTIL VOLUMES ARE ATTACHED BEFORE BOOT
 # =============================================================
 
-JSON=$(ibmcloud pi instance get "$INSTANCE_IDENTIFIER" --json 2>/dev/null)
-
-# normalize null into []
-VOL_LIST=$(echo "$JSON" | jq -r '(.volumes // []) | .[]? | .volumeID')
-
-ATTACHED_BOOT=$(echo "$VOL_LIST" | grep "$CLONE_BOOT_ID" || true)
-
-DATA_MATCH=true
-if [[ -n "$CLONE_DATA_IDS" ]]; then
-    DATA_MATCH=$(echo "$VOL_LIST" | grep "$CLONE_DATA_IDS" || true)
-fi
-
 echo ""
 echo "[SNAP-ATTACH] Waiting for volumes to attach..."
 
-MAX_WAIT=420   # 20 minutes — snapshot metadata can lag
-INTERVAL=30
+MAX_WAIT=420   # 7 minutes per your request
+INTERVAL=15
 WAITED=0
 
 while true; do
-    JSON=$(ibmcloud pi instance get "$INSTANCE_IDENTIFIER" --json 2>/dev/null)
 
-    VOL_LIST=$(echo "$JSON" \
+    VOL_LIST=$(ibmcloud pi instance volume list "$INSTANCE_IDENTIFIER" --json 2>/dev/null \
         | jq -r '(.volumes // []) | .[]? | .volumeID')
 
-    ATTACHED_BOOT=$(echo "$VOL_LIST" | grep "$CLONE_BOOT_ID" || true)
+    # Look for boot volume
+    BOOT_PRESENT=$(echo "$VOL_LIST" | grep "$CLONE_BOOT_ID" || true)
 
-    DATA_MATCH=true
+    DATA_PRESENT=true
     if [[ -n "$CLONE_DATA_IDS" ]]; then
-        DATA_MATCH=$(echo "$VOL_LIST" | grep "$CLONE_DATA_IDS" || true)
+        DATA_PRESENT=$(echo "$VOL_LIST" | grep "$CLONE_DATA_IDS" || true)
     fi
 
-    if [[ -n "$ATTACHED_BOOT" && ( -z "$CLONE_DATA_IDS" || -n "$DATA_MATCH" ) ]]; then
-        echo "[SNAP-ATTACH] Volumes now attached and visible to API"
+    if [[ -n "$BOOT_PRESENT" && ( -z "$CLONE_DATA_IDS" || -n "$DATA_PRESENT" ) ]]; then
+        echo "[SNAP-ATTACH] Verified: volumes visible on instance via API"
         break
     fi
 
+
+    #
+    # TIMEOUT handling
+    #
     if [[ $WAITED -ge $MAX_WAIT ]]; then
-        echo "[FATAL] Volumes never reflected in API after $MAX_WAIT seconds"
-        echo "They might actually be attached — investigate manually"
+        echo "[FATAL] Volumes never fully appeared after $MAX_WAIT seconds."
+        echo "[WARN] Backend did not report attached volumes but attach commands were accepted."
+        echo "[WARN] Storage may actually be attached — confirm manually."
+
         exit 22
     fi
 
-    echo "[SNAP-ATTACH] Volumes not ready yet...checking again"
+    echo "[SNAP-ATTACH] Volumes not fully attached yet — checking again..."
     sleep $INTERVAL
     WAITED=$((WAITED+INTERVAL))
+
 done
+
+
 
 
 
