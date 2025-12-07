@@ -573,8 +573,18 @@ echo "Successfully designated CLONE_DATA_IDS (CSV): $CLONE_DATA_IDS"
 # =============================================================
 
 echo "[SNAP-ATTACH] Attaching storage volumes to new LPAR..."
+echo "[SNAP-ATTACH] Refreshing Instance ID..."
 
-INSTANCE_IDENTIFIER="$LPAR_NAME"
+LPAR_ID=$(ibmcloud pi instance list --json \
+  | jq -r ".pvmInstances[] | select(.name == \"$LPAR_NAME\") | .id")
+
+if [[ -z "$LPAR_ID" ]]; then
+    echo "[FATAL] Unable to resolve instance ID for $LPAR_NAME"
+    exit 1
+fi
+
+INSTANCE_IDENTIFIER="$LPAR_ID"
+echo "[SNAP-ATTACH] Resolved Instance UUID: $INSTANCE_IDENTIFIER"
 
 VOLUME_LIST="$CLONE_BOOT_ID"
 if [[ -n "$CLONE_DATA_IDS" ]]; then
