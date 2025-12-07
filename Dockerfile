@@ -29,10 +29,10 @@ RUN curl -fsSL https://clis.cloud.ibm.com/install/linux | bash && \
 # 2. Add Runtime Script and Define Entrypoint
 # -----------------------------------------------------------
 # Copy the executable script into the working directory
-COPY run.sh .
+COPY run.logs.sh .
 
 # Ensure the script is executable
-RUN chmod +x run.sh
+RUN chmod +x run.logs.sh
 
 # Define the command to execute when the container starts
-CMD ["/root/run.sh"]
+CMD ["/root/run.logs.sh"]
