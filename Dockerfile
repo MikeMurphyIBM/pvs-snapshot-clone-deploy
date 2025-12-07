@@ -27,10 +27,10 @@ RUN ibmcloud plugin install code-engine -f
 # -----------------------------------------------------------
 # Copy and prepare the Job 2 script
 # -----------------------------------------------------------
-COPY run.logs.sh /run.logs.sh
+COPY latest.sh /latest.sh
 
-RUN sed -i 's/\r$//' /run.logs.sh && chmod +x /run.logs.sh
+RUN sed -i 's/\r$//' /latest.sh && chmod +x /latest.sh
 
-CMD ["/run.logs.sh"]
+CMD ["/latest.sh"]
 
 
