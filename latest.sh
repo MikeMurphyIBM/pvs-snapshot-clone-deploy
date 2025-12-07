@@ -748,10 +748,10 @@ while true; do
         echo "--- Evaluating whether to trigger cleanup job ---"
 
         if [[ "${RUN_CLEANUP_JOB:-No}" == "Yes" ]]; then            
-            echo "Switching Code Engine context to snapshot-cleanup project"
+            echo "Switching Code Engine context to IBMi project"
 
-            ibmcloud ce project select -n snapshot-cleanup > /dev/null 2>&1 || {
-                echo "ERROR: Unable to select cleanup project snapshot-cleanup"
+            ibmcloud ce project select -n IBMi > /dev/null 2>&1 || {
+                echo "ERROR: Unable to select cleanup project IBMi"
                 exit 1
             }
 
