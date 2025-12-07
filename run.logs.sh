@@ -142,4 +142,108 @@ log_info "Clone task ID: $CLONE_TASK_ID"
 log_stage "Waiting on clone task to finish"
 
 while true; do
-    CLONE_STATE=$(ibmcloud pi volume clone-async get "$CLONE_TASK_ID_
+    CLONE_STATE=$(ibmcloud pi volume clone-async get "$CLONE_TASK_ID" --json | jq -r '.status')
+    
+    case "$CLONE_STATE" in
+        completed)
+            log_info "Clone completed successfully"
+            break
+            ;;
+        failed|cancelled)
+            log_error "Clone failed. State=$CLONE_STATE"
+            exit 1
+            ;;
+        *)
+            log_info "Clone running — state=$CLONE_STATE"
+            sleep 30
+            ;;
+    esac
+done
+
+
+# ============================================================
+# DISCOVER clones after async completion
+# ============================================================
+log_stage "Discovering cloned volume IDs"
+
+NEW_CLONE_IDS=""
+ATTEMPTS=0
+
+while [[ -z "$NEW_CLONE_IDS" && $ATTEMPTS -lt 20 ]]; do
+    NEW_CLONE_IDS=$(ibmcloud pi volume list --long --json | \
+        jq -r ".volumes[] | select(.name | contains(\"$CLONE_NAME_PREFIX\")) | .volumeID")
+    ((ATTEMPTS++))
+    sleep 10
+done
+
+log_info "Cloned volume IDs found: $NEW_CLONE_IDS"
+
+
+# ============================================================
+# STEP 5: ATTACH cloned volumes
+# ============================================================
+log_stage "Attaching cloned volumes to the LPAR"
+
+LPAR_ID=$(ibmcloud pi instance list --json | jq -r ".pvmInstances[] | select(.name==\"$LPAR_NAME\") | .id")
+
+log_info "Attaching volumes to instance: $LPAR_ID"
+
+ATTACH_CMD="ibmcloud pi instance volume attach $LPAR_ID \
+            --boot-volume $SOURCE_BOOT_ID \
+            --volumes $(echo "$NEW_CLONE_IDS" | tr ' ' ',')"
+
+$ATTACH_CMD
+
+log_info "Volumes successfully attached"
+
+
+# ============================================================
+# STEP 6: BOOT LPAR
+# ============================================================
+log_stage "Starting LPAR"
+
+ibmcloud pi instance operation "$LPAR_ID" \
+    --operation-type boot \
+    --boot-mode a \
+    --boot-operating-mode normal
+
+ibmcloud pi instance action "$LPAR_ID" --operation start
+
+log_info "Boot initiated — waiting for ACTIVE status"
+
+
+# ============================================================
+# STEP 7: VERIFY ACTIVE STATUS
+# ============================================================
+while true; do
+    ST=$(ibmcloud pi instance get "$LPAR_ID" --json | jq -r '.status')
+
+    if [[ "$ST" == "ACTIVE" ]]; then
+        log_info "Instance ACTIVE — restore complete."
+        JOB_SUCCESS=1
+        break
+    fi
+
+    log_info "LPAR state = $ST — waiting more..."
+    sleep 60
+done
+
+
+# ============================================================
+# STEP 8: TRIGGER NEXT JOB (conditional)
+# ============================================================
+log_stage "Evaluate triggering snapshot-cleanup job"
+
+if [[ "${RUN_CLEANUP_JOB:-No}" == "Yes" ]]; then
+    log_info "Launching snapshot-cleanup"
+    
+    NEXT_RUN=$(ibmcloud ce jobrun submit --job snapshot-cleanup --output json | jq -r '.name')
+    
+    log_info "Triggered instance: $NEXT_RUN"
+else
+    log_info "Cleanup stage skipped."
+fi
+
+
+log_stage "Job Completed Successfully"
+exit 0
