@@ -594,15 +594,18 @@ fi
 echo "[SNAP-ATTACH] Target Instance: $INSTANCE_IDENTIFIER"
 echo "[SNAP-ATTACH] Volumes to attach: $VOLUME_LIST"
 
-ibmcloud pi instance volume attach "$INSTANCE_IDENTIFIER" --volumes "$VOLUME_LIST"
-ATTACH_EXIT=$?
+echo "[SNAP-ATTACH] Attaching to instance $LPAR_NAME (UUID $INSTANCE_IDENTIFIER)"
 
-if [[ $ATTACH_EXIT -ne 0 ]]; then
-    echo "[FATAL] Attach request rejected by API"
-    exit 1
-else
-    echo "[SNAP-ATTACH] Attach request accepted — waiting for backend to complete"
-fi
+ibmcloud pi instance volume attach "$INSTANCE_IDENTIFIER" --volumes "$VOLUME_LIST" || {
+    echo "[ERROR] Attach API rejected request — retrying with short delay..."
+    sleep 10
+
+    ibmcloud pi instance volume attach "$INSTANCE_IDENTIFIER" --volumes "$VOLUME_LIST" || {
+        echo "[FATAL] Attach failed after retry"
+        exit 1
+    }
+}
+
 
 
 # =============================================================
