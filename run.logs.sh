@@ -234,10 +234,10 @@ done
 # ============================================================
 log_stage "Evaluate triggering snapshot-cleanup job"
 
-if [[ "${RUN_SNAPSHOT-CLEANUP:-No}" == "Yes" ]]; then
+if [[ "${RUN_CLEANUP_JOB:-No}" == "Yes" ]]; then
     log_info "Launching snapshot-cleanup"
     
-    NEXT_RUN=$(ibmcloud ce jobrun submit --job snapshot-cleanup --output json | jq -r '.name')
+    NEXT_RUN=$(ibmcloud ce jobrun submit --job snap-attach --output json | jq -r '.name')
     
     log_info "Triggered instance: $NEXT_RUN"
 else
