@@ -14,25 +14,27 @@ WORKDIR ${HOME}
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
-    jq
+    jq \
+    bash && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # -----------------------------------------------------------
-# Install IBM Cloud CLI and Power Virtual Server (Power-IaaS) Plugin
-# This step is COMBINED (using '&&') into a single RUN instruction.
-# This ensures that the shell environment where the IBM Cloud CLI is installed 
-# immediately proceeds to install the plugin, resolving the 'ibmcloud: not found' error.
+# Install IBM Cloud CLI
+# Then install Power Virtual Server and Code Engine Plugins
 # -----------------------------------------------------------
 RUN curl -fsSL https://clis.cloud.ibm.com/install/linux | bash && \
-    ibmcloud plugin install power-iaas -f
+    ibmcloud plugin install power-iaas -f && \
+    ibmcloud plugin install code-engine -f
+
+# Ensure CLI binaries are present in PATH
+ENV PATH="/root/.bluemix:${PATH}"
 
 # -----------------------------------------------------------
 # 2. Add Runtime Script and Define Entrypoint
 # -----------------------------------------------------------
-# Copy the executable script into the working directory
 COPY run.logs.sh .
 
-# Ensure the script is executable
 RUN chmod +x run.logs.sh
 
-# Define the command to execute when the container starts
 CMD ["/root/run.logs.sh"]
+
