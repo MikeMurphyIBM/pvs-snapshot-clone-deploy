@@ -590,115 +590,120 @@ echo "Successfully designated CLONE_DATA_IDS (CSV): $CLONE_DATA_IDS"
 # =============================================================
 # SECTION 10: Attach Cloned Volumes to the Empty LPAR
 # =============================================================
+# =============================================================
+# SECTION 10: Attach Cloned Volumes to the Empty LPAR
+# =============================================================
 
-echo "--- Step10: Retrieving current UUID for LPAR: $LPAR_NAME and attaching volumes ---"  # Eliminates cached UUID for previously used LPAR of the same name.
+echo "[SNAP-ATTACH] Attaching storage volumes to new LPAR..."
 
-# Command: ibmcloud pi instance list --json lists all instances.
-# The JSON output is piped to jq to filter by name and extract the current instance ID.
-# .pvmInstances[] is the array containing the instances in the list output.
-LPAR_ID=$(ibmcloud pi instance list --json 2>/dev/null | \
-          jq -r ".pvmInstances[] | select(.name == \"$LPAR_NAME\") | .id")
-
-# Check if the ID was successfully retrieved and is not empty
-if [[ -z "$LPAR_ID" ]]; then
-    echo "FATAL ERROR: Could not find an active PVM Instance named '$LPAR_NAME' in the current workspace."
-    echo "Action aborted. Please verify the instance status using 'ibmcloud pi instance list'."
-    exit 1
-else
-    echo "SUCCESS: LPAR Name '$LPAR_NAME' successfully resolved to current UUID: $LPAR_ID"
-    echo "The script will now use this UUID for subsequent operations."
-fi
-
-
-# Define the Instance ID (use UUID if possible)
-# Placeholder: Use LPAR_ID if retrieved, otherwise fallback to LPAR_NAME
 INSTANCE_IDENTIFIER="${LPAR_ID:-$LPAR_NAME}"
 
-# Combine volumes properly
 VOLUME_LIST="$CLONE_BOOT_ID"
 if [[ -n "$CLONE_DATA_IDS" ]]; then
     VOLUME_LIST="$VOLUME_LIST,$CLONE_DATA_IDS"
 fi
 
-echo "Attaching cloned volumes to instance: $INSTANCE_IDENTIFIER"
-echo "Volumes: $VOLUME_LIST"
+echo "[SNAP-ATTACH] Target Instance: $INSTANCE_IDENTIFIER"
+echo "[SNAP-ATTACH] Volumes to attach: $VOLUME_LIST"
 
-# Attach all at once
 ibmcloud pi instance volume attach "$INSTANCE_IDENTIFIER" --volumes "$VOLUME_LIST"
 ATTACH_EXIT=$?
 
 if [[ $ATTACH_EXIT -ne 0 ]]; then
-    echo "ERROR: Volume attach request failed."
+    echo "[FATAL] Attach request rejected by API"
     exit 1
 else
-    echo "Volume attach command accepted."
+    echo "[SNAP-ATTACH] Attach request accepted — waiting for backend to complete"
 fi
 
 
-# =====================================================================
-# WAIT FOR ATTACHED VOLUMES TO BECOME READY BEFORE BOOTING THE LPAR
-# =====================================================================
-echo "Waiting for volumes to become active..."
+# =============================================================
+# WAIT UNTIL VOLUMES ARE ATTACHED BEFORE BOOT
+# =============================================================
 
-for i in {1..30}; do
-    STATUS_LIST=$(ibmcloud pi instance volume list "$INSTANCE_IDENTIFIER" \
-        --json | jq -r '.[]?.status // .volumes[]?.status')
+echo "[SNAP-ATTACH] Waiting for volumes to attach..."
 
-    echo "Volume statuses: $STATUS_LIST"
+MAX_WAIT=300    # 5 minutes max
+INTERVAL=20
+WAITED=0
 
-    if echo "$STATUS_LIST" | grep -qE "in-use|attached|active"; then
-        echo "Volumes appear ready."
+while true; do
+    JSON=$(ibmcloud pi instance get "$INSTANCE_IDENTIFIER" --json 2>/dev/null)
+
+    ATTACHED_BOOT=$(echo "$JSON" | jq -r '.volumes[].volumeID' | grep "$CLONE_BOOT_ID" || true)
+    ATTACHED_DATA=$(echo "$JSON" | jq -r '.volumes[].volumeID' | grep "$CLONE_DATA_IDS" || true)
+
+    if [[ -n "$ATTACHED_BOOT" && ( -z "$CLONE_DATA_IDS" || -n "$ATTACHED_DATA" ) ]]; then
+        echo "[SNAP-ATTACH] Volumes now attached."
         break
     fi
 
-    echo "Volumes not ready yet...waiting 20 seconds"
-    sleep 20
+    if [[ $WAITED -ge $MAX_WAIT ]]; then
+        echo "[FATAL] Volumes never attached after waiting $MAX_WAIT seconds"
+        echo "Manual investigation required"
+        exit 22
+    fi
+
+    echo "[SNAP-ATTACH] Volumes not ready yet...waiting"
+    sleep $INTERVAL
+    WAITED=$((WAITED+INTERVAL))
 done
 
 
+# =============================================================
+# BOOT INSTANCE SAFELY
+# =============================================================
+
+echo "[SNAP-ATTACH] Configuring NORMAL boot mode..."
+
+ibmcloud pi instance operation "$INSTANCE_IDENTIFIER" \
+    --operation-type boot \
+    --boot-mode a \
+    --boot-operating-mode normal || {
+    echo "[FATAL] Failed to set boot mode"
+    exit 1
+}
+
+echo "[SNAP-ATTACH] Starting instance..."
+
+ibmcloud pi instance action "$INSTANCE_IDENTIFIER" --operation start || {
+    echo "[FATAL] Failed to request LPAR start"
+    exit 1
+}
+
 
 # =============================================================
-# SECTION 11: Dynamic Polling and Status Verification
+# WAIT FOR ACTIVE STATE
 # =============================================================
 
-LPAR_NAME="$INSTANCE_IDENTIFIER" # Use the identifier for messaging
-POLL_INTERVAL=90        # Check status every 90 seconds
-EXPECTED_STATUS="SHUTOFF"
-ERROR_STATUS_1="ERROR"
-ERROR_STATUS_2="FAILED"
-CURRENT_STATUS=""
+echo "[SNAP-ATTACH] Waiting for LPAR to go ACTIVE..."
 
-echo "--- Dynamic Polling started: Verifying LPAR status stability after attachment (Checking every ${POLL_INTERVAL} seconds) ---"
+MAX_BOOT_WAIT=1200 # 20 minutes
+BOOT_WAITED=0
+INTERVAL=30
 
 while true; do
-    
-    # Retrieve the current status of the LPAR.
-    STATUS_JSON=$(ibmcloud pi instance get "$LPAR_NAME" --json 2>/dev/null)
-    
-    # Extract the status field
-    CURRENT_STATUS=$(echo "$STATUS_JSON" | jq -r '.status' | tr '[:lower:]' '[:upper:]' | tr -d '[:space:].')
+    STATUS=$(ibmcloud pi instance get "$INSTANCE_IDENTIFIER" --json | jq -r '.status')
 
-    # --- 1. Success Check ---
-    if [[ "$CURRENT_STATUS" == "$EXPECTED_STATUS" ]]; then
-        # The mandatory wait should ensure the system is stable now.
-        echo "SUCCESS: Instance $LPAR_NAME is now in status $CURRENT_STATUS. Volume attachment verified complete and stable."
-        break  # Exit the while loop to proceed to the next step
-        
-    # --- 2. Error Checks ---
-    elif [[ "$CURRENT_STATUS" == "$ERROR_STATUS_1" || "$CURRENT_STATUS" == "$ERROR_STATUS_2" ]]; then
-        echo "FATAL ERROR: Instance status is $CURRENT_STATUS. Volume attachment failed. Exiting script."
-        exit 1
-        
-    elif [[ -z "$CURRENT_STATUS" || "$CURRENT_STATUS" == "NULL" ]]; then
-        echo "Warning: Instance status temporarily unavailable or NULL. Waiting ${POLL_INTERVAL} seconds..."
-        sleep $POLL_INTERVAL
-        
-    # --- 3. Waiting/In Progress ---
-    else
-        # Handles any unexpected transient states if the LPAR briefly left SHUTOFF
-        echo "Instance status: $CURRENT_STATUS. Waiting for stable target status $EXPECTED_STATUS. Waiting ${POLL_INTERVAL} seconds..."
-        sleep $POLL_INTERVAL
+    if [[ "$STATUS" == "ACTIVE" ]]; then
+        echo "[SNAP-ATTACH] SUCCESS — LPAR is ACTIVE"
+        JOB_SUCCESS=1
+        break
     fi
+
+    if [[ "$STATUS" == "ERROR" ]]; then
+        echo "[FATAL] LPAR entered ERROR state"
+        exit 1
+    fi
+
+    if [[ $BOOT_WAITED -ge $MAX_BOOT_WAIT ]]; then
+        echo "[FATAL] LPAR failed to reach ACTIVE"
+        exit 1
+    fi
+
+    echo "[SNAP-ATTACH] Status = $STATUS — waiting..."
+    sleep $INTERVAL
+    BOOT_WAITED=$((BOOT_WAITED+INTERVAL))
 done
 
 echo "--- Proceeding to LPAR boot configuration and start ---"
