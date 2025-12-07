@@ -70,23 +70,43 @@ SNAPSHOT_NAME="TMP_SNAP_$(date +"%Y%m%d%H%M")"
 log_info "Creating snapshot $SNAPSHOT_NAME on $PRIMARY_LPAR..."
 
 SNAPSHOT_JSON_OUTPUT=$(ibmcloud pi instance snapshot create "$PRIMARY_LPAR" --name "$SNAPSHOT_NAME" --json)
+
 SNAPSHOT_ID=$(echo "$SNAPSHOT_JSON_OUTPUT" | jq -r '.snapshotID')
 
+if [[ -z "$SNAPSHOT_ID" || "$SNAPSHOT_ID" == "null" ]]; then
+    log_error "Snapshot creation failed — aborting."
+    exit 1
+fi
+
 log_info "Snapshot created. ID: $SNAPSHOT_ID"
+
+# CRITICAL FIX — required for cleanup to know what snapshot to remove
+SOURCE_SNAPSHOT_ID="$SNAPSHOT_ID"
+export SOURCE_SNAPSHOT_ID
 
 log_info "Waiting for snapshot status to reach AVAILABLE..."
 
 while true; do
-    STATUS=$(ibmcloud pi instance snapshot get "$SNAPSHOT_ID" --json | jq -r '.status')
     
-    if [[ "$STATUS" == "AVAILABLE" ]]; then
-        log_info "Snapshot is available."
+    STATUS=$(ibmcloud pi instance snapshot get "$SNAPSHOT_ID" --json \
+        | jq -r '.status' \
+        | tr '[:upper:]' '[:lower:]')
+
+    if [[ "$STATUS" == "available" ]]; then
+        log_info "SUCCESS: Snapshot is AVAILABLE and ready to use."
+        sleep 10  # avoid API race
         break
     fi
 
-    log_info "Snapshot status = $STATUS — retrying..."
+    if [[ "$STATUS" == "error" ]]; then
+        log_error "Snapshot entered ERROR state — aborting."
+        exit 1
+    fi
+    
+    log_info "Snapshot status = $STATUS — waiting..."
     sleep 45
 done
+
 
 
 # ============================================================
