@@ -639,24 +639,18 @@ WAITED=0
 
 while true; do
     JSON=$(ibmcloud pi instance get "$INSTANCE_IDENTIFIER" --json 2>/dev/null)
+    VOL_LIST=$(echo "$JSON" | jq -r '(.volumes // []) | .[]?.volumeID')
 
-    ATTACHED_BOOT=$(echo "$JSON" | jq -r '.volumes[].volumeID' | grep "$CLONE_BOOT_ID" || true)
-    ATTACHED_DATA=$(echo "$JSON" | jq -r '.volumes[].volumeID' | grep "$CLONE_DATA_IDS" || true)
+    ATTACHED_BOOT=$(echo "$VOL_LIST" | grep "$CLONE_BOOT_ID" || true)
+    ATTACHED_DATA=$(echo "$VOL_LIST" | grep "$CLONE_DATA_IDS" || true)
 
     if [[ -n "$ATTACHED_BOOT" && ( -z "$CLONE_DATA_IDS" || -n "$ATTACHED_DATA" ) ]]; then
         echo "[SNAP-ATTACH] Volumes now attached."
         break
     fi
 
-    if [[ $WAITED -ge $MAX_WAIT ]]; then
-        echo "[FATAL] Volumes never attached after waiting $MAX_WAIT seconds"
-        echo "Manual investigation required"
-        exit 22
-    fi
-
     echo "[SNAP-ATTACH] Volumes not ready yet...waiting"
     sleep $INTERVAL
-    WAITED=$((WAITED+INTERVAL))
 done
 
 
