@@ -3,7 +3,7 @@
 echo "[SNAP-CLONE-ATTACH-DEPLOY] ==============================="
 echo "[SNAP-CLONE-ATTACH-DEPLOY] Job Stage Started"
 echo "[SNAP-CLONE-ATTACH-DEPLOY] Timestamp: $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-echo "[SNAP-CLONE-ATTACH-DEPLOY] ==============================="
+echo "[SNAP-ATTACH] ==============================="
 
 
 
@@ -612,36 +612,49 @@ fi
 
 # Define the Instance ID (use UUID if possible)
 # Placeholder: Use LPAR_ID if retrieved, otherwise fallback to LPAR_NAME
-INSTANCE_IDENTIFIER="${LPAR_ID:-$LPAR_NAME}" 
+INSTANCE_IDENTIFIER="${LPAR_ID:-$LPAR_NAME}"
 
-# Construct the full attachment command
-ATTACH_CMD="ibmcloud pi instance volume attach $INSTANCE_IDENTIFIER \
-    --boot-volume $CLONE_BOOT_ID \
-    --volumes $CLONE_DATA_IDS"
+# Combine volumes properly
+VOLUME_LIST="$CLONE_BOOT_ID"
+if [[ -n "$CLONE_DATA_IDS" ]]; then
+    VOLUME_LIST="$VOLUME_LIST,$CLONE_DATA_IDS"
+fi
 
-if [ ! -z "$CLONE_DATA_IDS" ]; then
-    ATTACH_CMD="$ATTACH_CMD --volumes $CLONE_DATA_IDS"
-    echo "Attaching boot volume ($CLONE_BOOT_ID) and data volumes ($CLONE_DATA_IDS) to $INSTANCE_IDENTIFIER."
+echo "Attaching cloned volumes to instance: $INSTANCE_IDENTIFIER"
+echo "Volumes: $VOLUME_LIST"
+
+# Attach all at once
+ibmcloud pi instance volume attach "$INSTANCE_IDENTIFIER" --volumes "$VOLUME_LIST"
+ATTACH_EXIT=$?
+
+if [[ $ATTACH_EXIT -ne 0 ]]; then
+    echo "ERROR: Volume attach request failed."
+    exit 1
 else
-    echo "Attaching only the boot volume ($CLONE_BOOT_ID) to $INSTANCE_IDENTIFIER."
+    echo "Volume attach command accepted."
 fi
 
 
-# Execute the asynchronous attachment command
-$ATTACH_CMD || { 
-    echo "FATAL ERROR: Failed to execute volume attachment command immediately. Exiting."
-    exit 1
-}
+# =====================================================================
+# WAIT FOR ATTACHED VOLUMES TO BECOME READY BEFORE BOOTING THE LPAR
+# =====================================================================
+echo "Waiting for volumes to become active..."
 
-echo "Volume attachment request accepted by the API."
+for i in {1..30}; do
+    STATUS_LIST=$(ibmcloud pi instance volume list "$INSTANCE_IDENTIFIER" \
+        --json | jq -r '.[]?.status // .volumes[]?.status')
 
-# --- MANDATORY WAIT TO ALLOW ASYNCHRONOUS STORAGE OPERATION TO COMPLETE ---
-# Adjust this value based on volume size and environment latency. 180 seconds (3 minutes) 
-# is a safer starting point for complex storage operations than zero delay.
+    echo "Volume statuses: $STATUS_LIST"
 
-MANDATORY_WAIT_SECONDS=180
-echo "Waiting a mandatory ${MANDATORY_WAIT_SECONDS} seconds for asynchronous storage attachment..."
-sleep $MANDATORY_WAIT_SECONDS
+    if echo "$STATUS_LIST" | grep -qE "in-use|attached|active"; then
+        echo "Volumes appear ready."
+        break
+    fi
+
+    echo "Volumes not ready yet...waiting 20 seconds"
+    sleep 20
+done
+
 
 
 # =============================================================
