@@ -28,7 +28,7 @@ RUN ibmcloud plugin repo-plugins && \
 # Copy script into container
 COPY truncated.sh .
 
-RUN chmod +x linkedin.sh
+RUN chmod +x truncated.sh
 
 CMD ["./truncated.sh"]
 
