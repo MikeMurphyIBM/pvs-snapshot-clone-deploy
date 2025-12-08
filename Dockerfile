@@ -26,10 +26,10 @@ RUN ibmcloud plugin repo-plugins && \
     ibmcloud plugin install code-engine -f
 
 # Copy script into container
-COPY truncated.sh .
+COPY linkedin.sh .
 
-RUN chmod +x truncated.sh
+RUN chmod +x linkedin.sh
 
-CMD ["./truncated.sh"]
+CMD ["./linkedin.sh"]
 
 
