@@ -27,10 +27,10 @@ RUN ibmcloud plugin install code-engine -f
 # -----------------------------------------------------------
 # Copy and prepare the Job 2 script
 # -----------------------------------------------------------
-COPY latest.sh /latest.sh
+COPY truncated.sh /truncated.sh
 
-RUN sed -i 's/\r$//' /latest.sh && chmod +x /latest.sh
+RUN sed -i 's/\r$//' /truncated.sh && chmod +x /truncated.sh
 
-CMD ["/latest.sh"]
+CMD ["/truncated.sh"]
 
 
