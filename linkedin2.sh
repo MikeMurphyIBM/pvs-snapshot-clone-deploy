@@ -1,13 +1,20 @@
 #!/bin/bash
 
+exec 1>/dev/null
+
+log_print() {
+    printf "[%s] %s\n" "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$1" >&2
+}
+
+
 echo "[SNAP-ATTACH] ==============================="
 echo "[SNAP-ATTACH] Job Started"
 echo "[SNAP-ATTACH] Timestamp: $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 echo "[SNAP-ATTACH] ==============================="
 
-echo "====================================================================="
-echo "Job 2:  Snapshot/Cloning/Restore Operations on Primary and Secondary LPAR"
-echo "====================================================================="
+log_print "========================================================================="
+log_print "Job 2:  Snapshot/Cloning/Restore Operations on Primary and Secondary LPAR"
+log_print "========================================================================="
 
 
 # -------------------------
