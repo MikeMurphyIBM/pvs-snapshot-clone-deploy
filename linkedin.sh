@@ -5,10 +5,10 @@ echo "[SNAP-ATTACH] Job Started"
 echo "[SNAP-ATTACH] Timestamp: $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 echo "[SNAP-ATTACH] ==============================="
 
+echo "====================================================================="
+echo "Job 2:  Snapshot/Cloning/Restore Operations on Primary and Secondary LPAR"
+echo "====================================================================="
 
-
-
-echo "=== IBMi Snapshot Restore and Boot Script ==="
 
 # -------------------------
 # 1a. Environment Variables
@@ -49,19 +49,18 @@ cleanup_on_failure() {
     trap - ERR EXIT
 
     if [[ $JOB_SUCCESS -eq 1 ]]; then
-        echo "[SNAP-ATTACH] Job finished successfully — no cleanup needed"
+        echo "Job finished successfully — no cleanup needed"
         return 0
     fi
 
     echo ""
-    echo "================================================================================="
     echo "[CLEANUP] FAILURE DETECTED — BEGINNING SAFE CLEANUP OPERATIONS"
-    echo "================================================================================="
+
 
     #
     # STEP 1 — Shutdown LPAR safely IF it exists
     #
-    echo "[CLEANUP] Checking whether LPAR exists..."
+    echo "Checking whether LPAR exists..."
     LPAR_JSON=$(ibmcloud pi instance get "$LPAR_NAME" --json 2>/dev/null || true)
 
     LPAR_EXISTS=$(echo "$LPAR_JSON" | jq -r '.pvmInstanceID // empty')
@@ -71,11 +70,11 @@ cleanup_on_failure() {
         echo "[CLEANUP] Found active LPAR ($LPAR_NAME) with status=$STATUS"
 
         if [[ "$STATUS" != "SHUTOFF" ]]; then
-            echo "[CLEANUP] Attempting shutdown..."
+            echo "Attempting shutdown..."
             ibmcloud pi instance action "$LPAR_NAME" --operation stop >/dev/null 2>&1 || true
         fi
 
-        echo "[CLEANUP] Waiting for shutdown confirmation (max 2 minutes)"
+        echo "Waiting for shutdown confirmation (max 2 minutes)"
         for ((i=0; i<12; i++)); do
             STATUS=$(ibmcloud pi instance get "$LPAR_NAME" --json 2>/dev/null | jq -r '.status' || true)
             if [[ "$STATUS" == "SHUTOFF" || "$STATUS" == "ERROR" ]]; then
@@ -85,7 +84,7 @@ cleanup_on_failure() {
             sleep 10
         done
     else
-        echo "[CLEANUP] No active LPAR found — skipping shutdown"
+        echo "No active LPAR found — skipping shutdown"
     fi
 
 
@@ -93,8 +92,8 @@ cleanup_on_failure() {
     # STEP 2 — NEVER DELETE SNAPSHOT
     #
     if [[ -n "$SOURCE_SNAPSHOT_ID" ]]; then
-        echo "[CLEANUP] Snapshot ID [$SOURCE_SNAPSHOT_ID] will NOT be deleted"
-        echo "[CLEANUP] Snapshot preserved for retry, analysis, or manual deploy"
+        echo "Snapshot ID [$SOURCE_SNAPSHOT_ID] will NOT be deleted"
+        echo "Snapshot preserved for retry, analysis, or manual deploy"
     fi
 
 
@@ -102,7 +101,7 @@ cleanup_on_failure() {
     # STEP 3 — Remove cloned volumes
     #
     if [[ -z "$CLONE_BOOT_ID" && -z "$CLONE_DATA_IDS" ]]; then
-        echo "[CLEANUP] No cloned volumes exist — cleanup complete"
+        echo "No cloned volumes exist — cleanup complete"
         return 0
     fi
 
