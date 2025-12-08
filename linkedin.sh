@@ -5,9 +5,9 @@ echo "[SNAP-ATTACH] Job Started"
 echo "[SNAP-ATTACH] Timestamp: $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 echo "[SNAP-ATTACH] ==============================="
 
-echo "====================================================================="
+echo "========================================================================="
 echo "Job 2:  Snapshot/Cloning/Restore Operations on Primary and Secondary LPAR"
-echo "====================================================================="
+echo "========================================================================="
 
 
 # -------------------------
@@ -164,9 +164,6 @@ cleanup_on_failure() {
 }
 
 
-
-  
-
 # =============================================================
 # SECTION 2b. Helper Function for Waiting for Asynchronous Clone Tasks
 # (Volume cloning is an asynchronous operation handled via a Clone Task ID)
@@ -207,21 +204,20 @@ function wait_for_job() {
 trap 'cleanup_on_failure' ERR EXIT
 
 
-# -------------------------
-# SECTION 3. Initialization and Targeting
-# -------------------------
-
-echo "--- Secure Authentication and Targeting PowerVS Workspace ---"
+#--------------------------------------------------------------
+echo "Stage 1 of 12: IBM Cloud Authentication and Targeting PowerVS Workspace"
+#-------------------------------------------------------------- 
 
 ibmcloud login --apikey $API_KEY -r $REGION || { echo "ERROR: IBM Cloud login failed."; exit 1; }
 ibmcloud target -g $RESOURCE_GROP_NAME || { echo "ERROR: Failed to target resource group."; exit 1; }
 ibmcloud pi ws target $PVS_CRN || { echo "ERROR: Failed to target PowerVS workspace $PVS_CRN."; exit 1; }
-echo "Successfully targeted workspace."
+
+echo "Stage 1 of 12 Complete: Successfully authenticated into IBM Cloud"
 
 
 
 # =============================================================
-# SECTION 4: Perform the Snapshot Operation on Primary LPAR
+echo "Stage 2 of 12: Perform Snapshot Operation on primary LPAR"
 # =============================================================
 
 # Generate the unique snapshot name down to the minute (Year, Month, Day, Hour, Minute).
@@ -242,7 +238,7 @@ SNAPSHOT_JSON_OUTPUT=$(ibmcloud pi instance snapshot create "$PRIMARY_LPAR" --na
 # Use 'jq' to extract the unique Snapshot ID (assuming jq is installed)
 # The output contains the unique ID required for subsequent 'get' commands.
 SNAPSHOT_ID=$(echo "$SNAPSHOT_JSON_OUTPUT" | jq -r '.snapshotID')
-echo "Snapshot initiated successfully. ID: $SNAPSHOT_ID"
+echo "Stage 2 of 12 Complete:  Snapshot successfully created with an ID: $SNAPSHOT_ID"
 
 # *** CRITICAL ASSIGNMENT STEP ***
 SOURCE_SNAPSHOT_ID="$SNAPSHOT_ID"
@@ -347,10 +343,8 @@ BOOT_FOUND=0
 echo "All Source Volume IDs found. Checking individual volumes for Load Source designation..."
 
 # =============================================================
-# SECTION 7. Classify Source Volumes (Boot vs. Data)
+echo "Stage 3 of 12: Classifying Source Boot/Data Volumes from Snapshot"
 # =============================================================
-
-echo "--- Step 5: Classifying Source Volumes (Boot vs. Data) -----"
 
 # Iterate through each discovered Source Volume ID
 for VOL_ID in $SOURCE_VOLUME_IDS; do
@@ -385,6 +379,8 @@ fi
 echo "Source Boot Volume ID: $SOURCE_BOOT_ID"
 echo "Source Data Volume IDs (CSV): $SOURCE_DATA_IDS"
 
+echo "Stage 3 of 12 Complete:  Source Boot/Data Volumes Identifies"
+
 echo "--- Step 6: Calculating Total Volume Count"
 
 # --- Pre-requisite: Dynamically Identify Expected Volume Count ---
@@ -414,7 +410,7 @@ echo "--- Calculated Total Expected Volume Count: $EXPECTED_VOLUME_COUNT ---"
 
 
 # =============================================================
-# SECTION 8: Create Volume Clones from the Discovered Source Volumes
+echo "Stage 4 of 12: Create Volume Clones from the Source Volumes"
 # =============================================================
 
 echo "--- Step 7: Initiating volume cloning of all source volumes ---"
@@ -501,17 +497,17 @@ if [[ -z "$NEW_CLONE_IDS" ]]; then
     exit 1
 fi
 
-echo "Discovery successful! Located Volume IDs: $NEW_CLONE_IDS"
+echo "Stage 4 of 12 Complete: Clone Volume(s) successfully created with Volume IDs: $NEW_CLONE_IDS"
 
 
 # --- API SYNCHRONIZATION PAUSE ---
-echo "=========================================="
+# ==========================================
 echo "Wait 2 minutes to allow cloned volumes to synchronize with the PVS API"
 sleep 2m # Use 'sleep 120' or 'sleep 2m' (2 minutes)
-echo "=========================================="
+#==========================================
 
 # =============================================================
-# SECTION 9: Classify the Newly Cloned Volumes (Boot vs. Data)
+echo "Stage 5 of 12: Classify the Newly Cloned Volumes (Boot vs. Data)"
 # =============================================================
 
 echo "--- Step 9: Classifying newly cloned volumes ---"
@@ -563,13 +559,15 @@ if [ "$BOOT_FOUND_FLAG" -ne 1 ]; then
     exit 1
 fi
 
-echo "Successfully designated CLONE_BOOT_ID: $CLONE_BOOT_ID"
-echo "Successfully designated CLONE_DATA_IDS (CSV): $CLONE_DATA_IDS"
+echo "Stage 5 of 12 Successfully Completed"
+echo "CLONE_BOOT_ID: $CLONE_BOOT_ID"
+echo "CLONE_DATA_IDS (CSV): $CLONE_DATA_IDS"
 
 
 # =============================================================
-# SECTION 10: Attach Cloned Volumes to the Empty LPAR
+echo "Stage 6 of 12:  Attach Cloned Volumes to the Empty LPAR"
 # =============================================================
+
 echo "[SNAP-ATTACH] Resolving instance ID (UUID) ..."
 
 INSTANCE_IDENTIFIER=$(ibmcloud pi instance list --json \
@@ -583,10 +581,8 @@ fi
 echo "[SNAP-ATTACH] Using instance ID: $INSTANCE_IDENTIFIER"
 
 echo ""
-echo "================ Attach Stage ================"
 echo "[SNAP-ATTACH] BOOT VOLUME: $CLONE_BOOT_ID"
 echo "[SNAP-ATTACH] DATA VOLUMES: $CLONE_DATA_IDS"
-echo "=============================================="
 echo ""
 
 #
@@ -606,9 +602,8 @@ echo "[SNAP-ATTACH] Boot volume attach accepted — waiting 60 seconds"
 sleep 60
 
 
-#
 # STEP 2 — Attach DATA volumes only if available
-#
+
 if [[ -n "$CLONE_DATA_IDS" ]]; then
     echo "[SNAP-ATTACH] Attaching DATA volumes..."
 
@@ -651,7 +646,7 @@ while true; do
     fi
 
     if [[ -n "$BOOT_PRESENT" && ( -z "$CLONE_DATA_IDS" || -n "$DATA_PRESENT" ) ]]; then
-        echo "[SNAP-ATTACH] Verified: volumes visible on instance via API"
+        echo "Stage 6 of 12 Complete: Volumes visible on instance via API"
         break
     fi
     
@@ -672,7 +667,7 @@ while true; do
 done
 
 # =============================================================
-# BOOT INSTANCE SAFELY
+echo "Stage 7 of 12:  BOOT IBMi Instance Safely w/Unassisted IPL"
 # =============================================================
 
 
@@ -720,7 +715,7 @@ while true; do
     STATUS=$(ibmcloud pi instance get "$INSTANCE_IDENTIFIER" --json | jq -r '.status')
 
     if [[ "$STATUS" == "ACTIVE" ]]; then
-        echo "[SNAP-ATTACH] SUCCESS — LPAR is ACTIVE"
+        echo "Stage 7 of 12 Complete:  LPAR is in Active State"
         JOB_SUCCESS=1
         break
     fi
@@ -739,13 +734,6 @@ while true; do
     sleep $INTERVAL
     BOOT_WAITED=$((BOOT_WAITED+INTERVAL))
 done
-
-echo "--- Proceeding to LPAR boot configuration and start ---"
-
-# =============================================================
-# SECTION 12. Setting LPAR Boot Mode to Normal and Initializing Startup
-# =============================================================
-
 
 
 echo "LPAR '$LPAR_NAME' start initiated successfully in NORMAL mode."
@@ -769,7 +757,7 @@ while true; do
 
         echo ""
         echo "--------------------------------------------"
-        echo "Restore & Boot Summary:"
+        echo "Snapshot Restore Summary"
         echo "--------------------------------------------"
         echo "Snapshot Taken            : Yes"
         echo "Volumes Cloned            : Yes"
@@ -798,7 +786,7 @@ while true; do
             echo "Skipping cleanup stage; RUN_CLEANUP_JOB is NOT set to Yes."
         fi
         
-        echo "[SNAP-ATTACH] Job Completed Successfully"
+        echo "[SNAP-ATTACH] Job #2 Completed Successfully"
         echo "[SNAP-ATTACH] Timestamp: $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
         exit 0 
