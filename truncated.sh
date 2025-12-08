@@ -302,7 +302,9 @@ if [[ -z "$CLONE_TS" ]]; then
 fi
 
 # Convert clone timestamp to epoch
-CLONE_TS_EPOCH=$(date -d "${CLONE_TS:0:8} ${CLONE_TS:8:2}:${CLONE_TS:10:2}" +%s)
+#CLONE_TS_EPOCH=$(date -d "${CLONE_TS:0:8} ${CLONE_TS:8:2}:${CLONE_TS:10:2}" +%s)#previous version
+CLONE_TS_EPOCH=$(date -d "${CLONE_TS:0:8} ${CLONE_TS:8:2}:${CLONE_TS:10:2}:00" +%s)
+
 
 THRESHOLD_SECONDS=120
 BEST_MATCH=""
@@ -316,7 +318,9 @@ echo "$SNAPSHOT_LIST_JSON" | jq -c '.snapshots[]' | while read SNAP; do
     SNAP_TS=$(echo "$SNAP_NAME" | grep -oE '[0-9]{12}')
     [[ -z "$SNAP_TS" ]] && continue
 
-    SNAP_TS_EPOCH=$(date -d "${SNAP_TS:0:8} ${SNAP_TS:8:2}:${SNAP_TS:10:2}" +%s)
+    #SNAP_TS_EPOCH=$(date -d "${SNAP_TS:0:8} ${SNAP_TS:8:2}:${SNAP_TS:10:2}" +%s)#previous version
+    SNAP_TS_EPOCH=$(date -d "${SNAP_TS:0:8} ${SNAP_TS:8:2}:${SNAP_TS:10:2}:00" +%s)
+
 
     DIFF=$(( CLONE_TS_EPOCH - SNAP_TS_EPOCH ))
     DIFF=${DIFF#-} # absolute value
