@@ -280,14 +280,60 @@ if [[ $? -ne 0 || -z "$SNAPSHOT_LIST_JSON" ]]; then
     exit 1
 fi
 
-LATEST_SNAPSHOT_ID=$(echo "$SNAPSHOT_LIST_JSON" | jq -r '.snapshots | sort_by(.creationDate) | last .snapshotID')
+#temporarily commenting out to trying epoch method for identification  and correlation
+#LATEST_SNAPSHOT_ID=$(echo "$SNAPSHOT_LIST_JSON" | jq -r '.snapshots | sort_by(.creationDate) | last .snapshotID')
 
-if [[ -z "$LATEST_SNAPSHOT_ID" || "$LATEST_SNAPSHOT_ID" == "null" ]]; then
-    echo "Error: Could not find any snapshots in workspace. Aborting."
+#if [[ -z "$LATEST_SNAPSHOT_ID" || "$LATEST_SNAPSHOT_ID" == "null" ]]; then
+ #   echo "Error: Could not find any snapshots in workspace. Aborting."
+  #  exit 1
+#fi
+#end of block
+
+#SOURCE_SNAPSHOT_ID="$LATEST_SNAPSHOT_ID"
+
+# trial block
+# Extract timestamp from clone name
+CLONE_TS=$(echo "$CLONE_NAME_PREFIX" | grep -oE '[0-9]{12}')
+if [[ -z "$CLONE_TS" ]]; then
+    echo "ERROR: Could not extract timestamp from clone naming convention."
     exit 1
 fi
 
-SOURCE_SNAPSHOT_ID="$LATEST_SNAPSHOT_ID"
+# Convert clone timestamp to epoch
+CLONE_TS_EPOCH=$(date -d "${CLONE_TS:0:8} ${CLONE_TS:8:2}:${CLONE_TS:10:2}" +%s)
+
+THRESHOLD_SECONDS=120
+BEST_MATCH=""
+BEST_DELTA=999999
+
+# Match snapshot based on closest timestamp
+echo "$SNAPSHOT_LIST_JSON" | jq -c '.snapshots[]' | while read SNAP; do
+    SNAP_NAME=$(echo "$SNAP" | jq -r '.name')
+    SNAP_ID=$(echo "$SNAP" | jq -r '.snapshotID')
+    
+    SNAP_TS=$(echo "$SNAP_NAME" | grep -oE '[0-9]{12}')
+    [[ -z "$SNAP_TS" ]] && continue
+
+    SNAP_TS_EPOCH=$(date -d "${SNAP_TS:0:8} ${SNAP_TS:8:2}:${SNAP_TS:10:2}" +%s)
+
+    DIFF=$(( CLONE_TS_EPOCH - SNAP_TS_EPOCH ))
+    DIFF=${DIFF#-} # absolute value
+
+    if (( DIFF <= THRESHOLD_SECONDS )) && (( DIFF < BEST_DELTA )); then
+        BEST_DELTA=$DIFF
+        BEST_MATCH=$SNAP_ID
+    fi
+done
+
+if [[ -z "$BEST_MATCH" ]]; then
+    echo "ERROR: No matching snapshot found within ${THRESHOLD_SECONDS} seconds tolerance."
+    exit 1
+fi
+
+SOURCE_SNAPSHOT_ID="$BEST_MATCH"
+echo "Matched Snapshot: $SOURCE_SNAPSHOT_ID"
+#tria block end
+
 echo "Latest Snapshot ID found: $SOURCE_SNAPSHOT_ID"
 
 
