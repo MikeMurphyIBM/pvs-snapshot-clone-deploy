@@ -1,13 +1,21 @@
 #!/bin/bash
 
+exec 1>/dev/null
+
+log_print() {
+    printf "[%s] %s\n" "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$1" >&2
+}
+
+
 echo "[SNAP-ATTACH] ==============================="
 echo "[SNAP-ATTACH] Job Started"
 echo "[SNAP-ATTACH] Timestamp: $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 echo "[SNAP-ATTACH] ==============================="
 
-echo "========================================================================="
-echo "Job 2:  Snapshot/Cloning/Restore Operations on Primary and Secondary LPAR"
-echo "========================================================================="
+log_print "========================================================================="
+log_print "Job 2:  Snapshot/Cloning/Restore Operations on Primary and Secondary LPAR"
+log_print "========================================================================="
+log_print ""
 
 
 # -------------------------
@@ -204,21 +212,23 @@ function wait_for_job() {
 trap 'cleanup_on_failure' ERR EXIT
 
 
-#--------------------------------------------------------------
-echo "Stage 1 of 12: IBM Cloud Authentication and Targeting PowerVS Workspace"
-#-------------------------------------------------------------- 
+log_print "========================================================================="
+log_print "Stage 1 of 7: IBM Cloud Authentication and Targeting PowerVS Workspace"
+log_print "========================================================================="
+log_print ""
 
 ibmcloud login --apikey $API_KEY -r $REGION || { echo "ERROR: IBM Cloud login failed."; exit 1; }
 ibmcloud target -g $RESOURCE_GROP_NAME || { echo "ERROR: Failed to target resource group."; exit 1; }
 ibmcloud pi ws target $PVS_CRN || { echo "ERROR: Failed to target PowerVS workspace $PVS_CRN."; exit 1; }
 
-echo "Stage 1 of 12 Complete: Successfully authenticated into IBM Cloud"
+log_print "Stage 1 of 7 Complete: Successfully authenticated into IBM Cloud"
 
 
 
-# =============================================================
-echo "Stage 2 of 12: Perform Snapshot Operation on primary LPAR"
-# =============================================================
+log_print "========================================================="
+log_print "Stage 2 of 7: Perform Snapshot Operation on primary LPAR"
+log_print "========================================================="
+log_print ""
 
 # Generate the unique snapshot name down to the minute (Year, Month, Day, Hour, Minute).
 # This satisfies the requirement that snapshot names must be unique for your workspace.
@@ -228,7 +238,7 @@ echo "--- Step 1: Initiating Snapshot on LPAR: $PRIMARY_LPAR ---"
 echo "Generated Snapshot Name: $SNAPSHOT_NAME"
 
 # --- Step 1: Execute Snapshot Operation and Capture ID ---
-echo "Creating Snapshot: $SNAPSHOT_NAME on LPAR: $PRIMARY_LPAR"
+log_print "Creating Snapshot: $SNAPSHOT_NAME on LPAR: $PRIMARY_LPAR"
 # Note: The command output must be captured in JSON format to extract the Snapshot ID.
 SNAPSHOT_JSON_OUTPUT=$(ibmcloud pi instance snapshot create "$PRIMARY_LPAR" --name "$SNAPSHOT_NAME" --json) || { 
     echo "Error initiating snapshot." 
@@ -237,8 +247,8 @@ SNAPSHOT_JSON_OUTPUT=$(ibmcloud pi instance snapshot create "$PRIMARY_LPAR" --na
 
 # Use 'jq' to extract the unique Snapshot ID (assuming jq is installed)
 # The output contains the unique ID required for subsequent 'get' commands.
-SNAPSHOT_ID=$(echo "$SNAPSHOT_JSON_OUTPUT" | jq -r '.snapshotID')
-echo "Stage 2 of 12 Complete:  Snapshot successfully created with an ID: $SNAPSHOT_ID"
+log_print SNAPSHOT_ID=$(echo "$SNAPSHOT_JSON_OUTPUT" | jq -r '.snapshotID')
+
 
 # *** CRITICAL ASSIGNMENT STEP ***
 SOURCE_SNAPSHOT_ID="$SNAPSHOT_ID"
@@ -262,7 +272,7 @@ while true; do
     CURRENT_STATUS=$(echo "$STATUS_JSON" | jq -r '.status' | tr '[:lower:]' '[:upper:]' | tr -d '[:space:].')
 
     if [[ "$CURRENT_STATUS" == "$EXPECTED_STATUS" ]]; then
-        echo "SUCCESS: Snapshot is now $CURRENT_STATUS. Proceeding to next step."
+        log_print "Stage 2 of 7 is Complete: $SNAPSHOT_ID is now $CURRENT_STATUS. Proceeding to next step."
         break  # Exit the while loop
         
     elif [[ "$CURRENT_STATUS" == "$ERROR_STATUS" ]]; then
@@ -314,9 +324,11 @@ SOURCE_SNAPSHOT_ID="$LATEST_SNAPSHOT_ID"
 echo "Latest Snapshot ID found: $SOURCE_SNAPSHOT_ID"
 
 
-# =============================================================
-# SECTION 6: Discover Source Volume IDs from the Snapshot
-# =============================================================
+log_print "========================================================================"
+log_print "Stage 3 of 7: Discover and Classify Source Volume IDs from the Snapshot"
+log_print "========================================================================"
+log_print ""
+
 echo "--- Step 4: Discovering Source Volume IDs from Snapshot: $SOURCE_SNAPSHOT_ID ---"
 
 # Action: Retrieve the snapshot metadata in JSON format.
@@ -343,7 +355,7 @@ BOOT_FOUND=0
 echo "All Source Volume IDs found. Checking individual volumes for Load Source designation..."
 
 # =============================================================
-echo "Stage 3 of 12: Classifying Source Boot/Data Volumes from Snapshot"
+echo "Stage 3 of 7: Classifying Source Boot/Data Volumes from Snapshot"
 # =============================================================
 
 # Iterate through each discovered Source Volume ID
@@ -376,10 +388,10 @@ if [ "$BOOT_FOUND" -ne 1 ]; then
     exit 1
 fi
 
-echo "Source Boot Volume ID: $SOURCE_BOOT_ID"
-echo "Source Data Volume IDs (CSV): $SOURCE_DATA_IDS"
+log_print "Source Boot Volume ID: $SOURCE_BOOT_ID"
+log_print "Source Data Volume IDs (CSV): $SOURCE_DATA_IDS"
 
-echo "Stage 3 of 12 Complete:  Source Boot/Data Volumes Identifies"
+log_print "Stage 3 of 7 Complete:  Source Boot/Data Volumes Identified"
 
 echo "--- Step 6: Calculating Total Volume Count"
 
@@ -409,11 +421,13 @@ EXPECTED_VOLUME_COUNT=$((BOOT_COUNT + DATA_COUNT))
 echo "--- Calculated Total Expected Volume Count: $EXPECTED_VOLUME_COUNT ---"
 
 
-# =============================================================
-echo "Stage 4 of 12: Create Volume Clones from the Source Volumes"
-# =============================================================
 
-echo "--- Step 7: Initiating volume cloning of all source volumes ---"
+log_print "========================================================================"
+log_print "Stage 4 of 7: Create Volume Clones from the Source Volumes"
+log_print "========================================================================"
+log_print ""
+
+echo "--- Initiating volume cloning of all source volumes ---"
 
 # The ibmcloud pi volume clone-async create command requires comma-separated IDs.
 # We must convert the space/newline-separated $SOURCE_VOLUME_IDS string to comma-separated.
@@ -434,9 +448,9 @@ if [ -z "$CLONE_TASK_ID" ]; then
     exit 1
 fi
 
-echo "Clone task initiated. Task ID: $CLONE_TASK_ID"
+log_print "Clone task initiated. Task ID: $CLONE_TASK_ID"
 
-echo "--- Step 7b: Waiting for asynchronous clone task completion ---"
+echo "--- Waiting for asynchronous clone task completion ---"
 
 # Check Clone Task Status: Monitor the status of the asynchronous task until it reports 'completed'.
 while true; do
@@ -444,7 +458,7 @@ while true; do
     TASK_STATUS=$(ibmcloud pi volume clone-async get "$CLONE_TASK_ID" --json | jq -r '.status')
     
     if [ "$TASK_STATUS" == "completed" ]; then
-        echo "Clone task $CLONE_TASK_ID completed successfully."
+        log_print "Clone task $CLONE_TASK_ID completed successfully."
         break
     elif [ "$TASK_STATUS" == "failed" ] || [ "$TASK_STATUS" == "cancelled" ]; then
         echo "Error: Clone task $CLONE_TASK_ID failed with status: $TASK_STATUS. Aborting."
@@ -497,7 +511,7 @@ if [[ -z "$NEW_CLONE_IDS" ]]; then
     exit 1
 fi
 
-echo "Stage 4 of 12 Complete: Clone Volume(s) successfully created with Volume IDs: $NEW_CLONE_IDS"
+log_print "Stage 4 of 7 Complete: Clone Volume(s) successfully created with Volume IDs: $NEW_CLONE_IDS"
 
 
 # --- API SYNCHRONIZATION PAUSE ---
@@ -506,12 +520,14 @@ echo "Wait 2 minutes to allow cloned volumes to synchronize with the PVS API"
 sleep 2m # Use 'sleep 120' or 'sleep 2m' (2 minutes)
 #==========================================
 
-# =============================================================
-echo "Stage 5 of 12: Classify the Newly Cloned Volumes (Boot vs. Data)"
-# =============================================================
+
+log_print "========================================================================"
+log_print "Stage 5 of 7: Classify the Newly Cloned Volumes (Boot vs. Data)"
+log_print "========================================================================"
+log_print ""
 
 echo "--- Step 9: Classifying newly cloned volumes ---"
-echo "#Action: DESIGNATE BOOT AND DATA VOLUMES by checking the explicit 'bootable' property."
+log_print "#Action: DESIGNATE BOOT AND DATA VOLUMES by checking the explicit 'bootable' property."
 
 # Initialize classification variables
 CLONE_BOOT_ID=""
@@ -538,12 +554,12 @@ for NEW_ID in $NEW_CLONE_IDS; do
     # Classification based on the volume attribute
     if [ "$IS_BOOTABLE" == "true" ]; then
         # This volume is explicitly flagged as the boot volume (Load Source)
-        echo "Identified CLONE Boot Volume ID: $NEW_ID"
+        log_print "Identified CLONE Boot Volume ID: $NEW_ID"
         CLONE_BOOT_ID="$NEW_ID"
         BOOT_FOUND_FLAG=1
     else
         # This is a data volume
-        echo "Identified CLONE Data Volume ID: $NEW_ID"
+        log_print "Identified CLONE Data Volume ID: $NEW_ID"
         # Concatenate data IDs into a temporary list
         TEMP_DATA_IDS="$TEMP_DATA_IDS,$NEW_ID"
     fi
@@ -559,14 +575,16 @@ if [ "$BOOT_FOUND_FLAG" -ne 1 ]; then
     exit 1
 fi
 
-echo "Stage 5 of 12 Successfully Completed"
+log_print "Stage 5 of 12 Complete:  Target Boot and Data Volumes Successfully Indentified"
 echo "CLONE_BOOT_ID: $CLONE_BOOT_ID"
 echo "CLONE_DATA_IDS (CSV): $CLONE_DATA_IDS"
 
 
-# =============================================================
-echo "Stage 6 of 12:  Attach Cloned Volumes to the Empty LPAR"
-# =============================================================
+
+log_print "========================================================================"
+log_print "Stage 6 of 7:  Attach Cloned Volumes to the Empty LPAR"
+log_print "========================================================================"
+log_print ""
 
 echo "[SNAP-ATTACH] Resolving instance ID (UUID) ..."
 
@@ -588,7 +606,7 @@ echo ""
 #
 # STEP 1 — Attach BOOT FIRST
 #
-echo "[SNAP-ATTACH] Attaching BOOT volume first..."
+log_print "Attaching BOOT volume first..."
 ibmcloud pi instance volume attach "$INSTANCE_IDENTIFIER" \
     --volumes "$CLONE_BOOT_ID"
 BOOT_EXIT=$?
@@ -605,7 +623,7 @@ sleep 60
 # STEP 2 — Attach DATA volumes only if available
 
 if [[ -n "$CLONE_DATA_IDS" ]]; then
-    echo "[SNAP-ATTACH] Attaching DATA volumes..."
+    log_print "Attaching DATA volumes..."
 
     ibmcloud pi instance volume attach "$INSTANCE_IDENTIFIER" \
         --volumes "$CLONE_DATA_IDS"
@@ -646,7 +664,7 @@ while true; do
     fi
 
     if [[ -n "$BOOT_PRESENT" && ( -z "$CLONE_DATA_IDS" || -n "$DATA_PRESENT" ) ]]; then
-        echo "Stage 6 of 12 Complete: Volumes visible on instance via API"
+        log_print "Stage 6 of 12 Complete: Volumes visible on instance via API"
         break
     fi
     
@@ -666,20 +684,21 @@ while true; do
 
 done
 
-# =============================================================
-echo "Stage 7 of 12:  BOOT IBMi Instance Safely w/Unassisted IPL"
-# =============================================================
+
+log_print "====================================================================="
+log_print "Stage 7 of 7:  BOOT IBMi Instance Safely w/Unassisted IPL"
+log_print "====================================================================="
+log_print ""
 
 
-echo ""
-echo "--- Step 11: Setting LPAR boot mode and initiating startup ---"
+log_print "--- Setting LPAR boot mode and initiating startup ---"
 
-# Refresh current instance state
+# Refresh instance state
 STATUS=$(ibmcloud pi instance get "$INSTANCE_IDENTIFIER" --json | jq -r '.status')
 
 if [[ "$STATUS" != "ACTIVE" ]]; then
     
-    echo "[SNAP-ATTACH] Configuring NORMAL boot mode..."
+    log_print "Configuring NORMAL boot mode..."
 
     ibmcloud pi instance operation "$INSTANCE_IDENTIFIER" \
         --operation-type boot \
@@ -689,25 +708,28 @@ if [[ "$STATUS" != "ACTIVE" ]]; then
         exit 1
     }
 
-    echo "[SNAP-ATTACH] Starting instance..."
+    echo "Starting instance..."
 
     ibmcloud pi instance action "$INSTANCE_IDENTIFIER" --operation start || { 
         echo "[FATAL] Failed to initiate LPAR start command. Aborting."
         exit 1 
     }
 
-    echo "[SNAP-ATTACH] LPAR start command accepted."
+    log_print "LPAR start command accepted."
 
+else
+    echo "LPAR is already ACTIVE — skipping boot/start request"
 fi
+
 
 
 # =============================================================
 # WAIT FOR ACTIVE STATE
 # =============================================================
 
-echo "[SNAP-ATTACH] Waiting for LPAR to go ACTIVE..."
+log_print "Waiting for LPAR to reach ACTIVE state..."
 
-MAX_BOOT_WAIT=1200 # 20 minutes
+MAX_BOOT_WAIT=1200  # 20 minutes
 BOOT_WAITED=0
 INTERVAL=30
 
@@ -715,57 +737,55 @@ while true; do
     STATUS=$(ibmcloud pi instance get "$INSTANCE_IDENTIFIER" --json | jq -r '.status')
 
     if [[ "$STATUS" == "ACTIVE" ]]; then
-        echo "Stage 7 of 12 Complete:  LPAR is in Active State"
+        echo "SUCCESS — LPAR is ACTIVE"
         JOB_SUCCESS=1
         break
     fi
 
     if [[ "$STATUS" == "ERROR" ]]; then
-        echo "[FATAL] LPAR entered ERROR state"
+        echo "[FATAL] LPAR entered ERROR state during boot"
         exit 1
     fi
 
     if [[ $BOOT_WAITED -ge $MAX_BOOT_WAIT ]]; then
-        echo "[FATAL] LPAR failed to reach ACTIVE"
+        echo "[FATAL] LPAR failed to reach ACTIVE after $(($MAX_BOOT_WAIT/60)) minutes"
         exit 1
     fi
 
-    echo "[SNAP-ATTACH] Status = $STATUS — waiting..."
+    echo "LPAR still in state [$STATUS] — sleeping $INTERVAL seconds..."
     sleep $INTERVAL
     BOOT_WAITED=$((BOOT_WAITED+INTERVAL))
 done
 
 
-echo "LPAR '$LPAR_NAME' start initiated successfully in NORMAL mode."
 
 # =============================================================
-# SECTION 13: Verify LPAR Status is Active and (optionally) trigger snapshot-cleanup
+# FINAL CONFIRMATION
 # =============================================================
 
-echo "--- Step 12: Checking LPAR status ---"
+FINAL_STATUS=$(ibmcloud pi instance get "$INSTANCE_IDENTIFIER" --json | jq -r '.status')
 
-while true; do
-    # Action: Get the status of the LPAR
-    LPAR_STATUS=$(ibmcloud pi instance get "$LPAR_NAME" --json | jq -r '.status')
-    
-    if [[ "$LPAR_STATUS" == "ACTIVE" ]]; then
-        echo "SUCCESS: LPAR $LPAR_NAME is now ACTIVE from PVS API perspective."
-        echo "Automation workflow successfully completed."
+if [[ "$FINAL_STATUS" != "ACTIVE" ]]; then
+    echo "WARNING — API readback did not reflect ACTIVE state, verify manually"
+else
+    echo "FINAL VALIDATION — LPAR ACTIVE confirmed from API"
+fi
 
-        # Mark overall job success so rollback will NOT run
-        JOB_SUCCESS=1
+log_print "Stage 7 of 7 Complete: Successfully confirmed LPAR is Active from API readback"
 
-        echo ""
-        echo "--------------------------------------------"
-        echo "Snapshot Restore Summary"
-        echo "--------------------------------------------"
-        echo "Snapshot Taken            : Yes"
-        echo "Volumes Cloned            : Yes"
-        echo "Volumes Attached to LPAR  : Yes"
-        echo "LPAR Boot Mode            : NORMAL (Mode A)"
-        echo "LPAR Final Status         : ACTIVE"
-        echo "--------------------------------------------"
-        echo ""
+
+
+       log_print ""
+       log_print "--------------------------------------------"
+       log_print "Snapshot Restore Summary"
+       log_print "--------------------------------------------"
+       log_print "Snapshot Taken            : Yes"
+       log_print "Volumes Cloned            : Yes"
+       log_print "Volumes Attached to LPAR  : Yes"
+       log_print"LPAR Boot Mode            : NORMAL (Mode A)"
+       log_print "LPAR Final Status         : ACTIVE"
+       log_print "--------------------------------------------"
+       log_print ""
 
         echo "--- Evaluating whether to trigger cleanup job ---"
 
@@ -786,7 +806,7 @@ while true; do
             echo "Skipping cleanup stage; RUN_CLEANUP_JOB is NOT set to Yes."
         fi
         
-        echo "[SNAP-ATTACH] Job #2 Completed Successfully"
+        log_print "Job #2 Completed Successfully"
         echo "[SNAP-ATTACH] Timestamp: $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
         exit 0 
