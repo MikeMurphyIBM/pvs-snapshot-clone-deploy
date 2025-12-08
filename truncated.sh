@@ -1,7 +1,7 @@
 #!/bin/bash
 
 
-
+##trying epoch and normal 12-08 1:16
 #####################################################
 # MODE 1 — log_print ONLY
 # (quiet execution: NO echo, NO errors, NO command output)
