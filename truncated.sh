@@ -1,21 +1,21 @@
 #!/bin/bash
 
 # Send normal stdout to /dev/null; only log_print (stderr) + command errors show up
-#exec 1>/dev/null
+exec 1>/dev/null
 
-#log_print() {
- #   printf "[%s] %s\n" "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$1" >&2
-#}
+log_print() {
+    printf "[%s] %s\n" "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$1" >&2
+}
 
-if [[ "${ENABLE_PRINTING:-yes}" == "yes" ]]; then
-    log_print() {
-        printf "[%s] %s\n" "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$1" >&2
-    }
-else
-    log_print() {
-        echo "$1"
-    }
-fi
+#if [[ "${ENABLE_PRINTING:-yes}" == "yes" ]]; then
+#    log_print() {
+#        printf "[%s] %s\n" "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$1" >&2
+#    }
+#else
+#    log_print() {
+#        echo "$1"
+#    }
+#fi
 
 
 echo "[SNAP-ATTACH] ==============================="
