@@ -215,7 +215,7 @@ ibmcloud target -g "$RESOURCE_GROP_NAME"      || { echo "ERROR: Failed to target
 ibmcloud pi ws target "$PVS_CRN"              || { echo "ERROR: Failed to target PowerVS workspace $PVS_CRN."; exit 1; }
 
 log_print "Stage 1 of 7 Complete: Successfully authenticated into IBM Cloud"
-log_print echo ""
+log_print ""
 
 
 log_print "========================================================="
