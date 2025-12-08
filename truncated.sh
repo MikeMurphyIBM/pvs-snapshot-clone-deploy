@@ -1,22 +1,29 @@
 #!/bin/bash
 
-# Send normal stdout to /dev/null; only log_print (stderr) + command errors show up
-#exec 1>/dev/null
 
+
+#####################################################
+# MODE 1 — log_print ONLY
+# (quiet execution: NO echo, NO errors, NO command output)
+#####################################################
+
+# Uncomment BOTH lines below to activate this mode:
+#exec >/dev/null 2>&1
 #log_print() {
- #   printf "[%s] %s\n" "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$1" >&2
+#    printf "[%s] %s\n" "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$1"
 #}
 
-#
-if [[ "${ENABLE_PRINTING:-yes}" == "yes" ]]; then
-    log_print() {
-        printf "[%s] %s\n" "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$1" >&2
-    }
-else
-    log_print() {
-        echo "$1"
-    }
-fi
+
+#####################################################
+# MODE 2 — log_print + echo + errors (normal mode)
+#####################################################
+
+# >>> LEAVE THESE LINES UNCOMMENTED FOR FULL OUTPUT <<<
+log_print() {
+    printf "[%s] %s\n" "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$1"
+}
+
+
 
 
 echo "[SNAP-ATTACH] ==============================="
