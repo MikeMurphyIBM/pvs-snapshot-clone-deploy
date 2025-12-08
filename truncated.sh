@@ -282,6 +282,76 @@ log_print ""
 log_print "--- Step 2: Discovering the latest Snapshot ID in the Workspace (Target LPAR: $LPAR_NAME) ---"
 log_print "Snapshot is available for use"
 
+#trying shit here
+SNAPSHOT_LIST_JSON=$(ibmcloud pi instance snapshot list --json)
+
+if [[ $? -ne 0 || -z "$SNAPSHOT_LIST_JSON" ]]; then
+    echo "Error: Failed to retrieve workspace snapshot list. Aborting."
+    exit 1
+fi
+
+#
+# Step 1: Get latest snapshot by timestamp (fallback/default)
+#
+LATEST_SNAPSHOT_ID=$(echo "$SNAPSHOT_LIST_JSON" | \
+    jq -r '.snapshots | sort_by(.creationDate) | last .snapshotID')
+
+if [[ -z "$LATEST_SNAPSHOT_ID" || "$LATEST_SNAPSHOT_ID" == "null" ]]; then
+    echo "Error: Could not find any snapshots in workspace. Aborting."
+    exit 1
+fi
+
+
+#
+# Step 2: Try epoch-based matching
+#
+CLONE_TS=$(echo "$CLONE_NAME_PREFIX" | grep -oE '[0-9]{12}')
+if [[ -z "$CLONE_TS" ]]; then
+    echo "ERROR: Could not extract timestamp from clone naming convention."
+    exit 1
+fi
+
+CLONE_TS_EPOCH=$(date -d "${CLONE_TS:0:8} ${CLONE_TS:8:2}:${CLONE_TS:10:2}:00" +%s)
+
+THRESHOLD_SECONDS=120
+BEST_MATCH=""
+BEST_DELTA=999999
+
+echo "$SNAPSHOT_LIST_JSON" | jq -c '.snapshots[]' | while read SNAP; do
+    SNAP_NAME=$(echo "$SNAP" | jq -r '.name')
+    SNAP_ID=$(echo "$SNAP" | jq -r '.snapshotID')
+    SNAP_TS=$(echo "$SNAP_NAME" | grep -oE '[0-9]{12}')
+
+    [[ -z "$SNAP_TS" ]] && continue
+
+    SNAP_TS_EPOCH=$(date -d "${SNAP_TS:0:8} ${SNAP_TS:8:2}:${SNAP_TS:10:2}:00" +%s)
+
+    DIFF=$(( CLONE_TS_EPOCH - SNAP_TS_EPOCH ))
+    DIFF=${DIFF#-}
+
+    if (( DIFF <= THRESHOLD_SECONDS )) && (( DIFF < BEST_DELTA )); then
+        BEST_DELTA=$DIFF
+        BEST_MATCH=$SNAP_ID
+    fi
+done
+
+
+#
+# Step 3: Final decision logic
+#
+if [[ -n "$BEST_MATCH" ]]; then
+    echo "Matched Snapshot via epoch correlation: $BEST_MATCH"
+    SOURCE_SNAPSHOT_ID="$BEST_MATCH"
+else
+    echo "WARNING: No snapshot matched within threshold; falling back to latest snapshot"
+    SOURCE_SNAPSHOT_ID="$LATEST_SNAPSHOT_ID"
+fi
+
+log_print "Final Snapshot Selection: $SOURCE_SNAPSHOT_ID"
+#shit ends here
+
+
+: <<'END_COMMENT'
 SNAPSHOT_LIST_JSON=$(ibmcloud pi instance snapshot list --json)
 
 if [[ $? -ne 0 || -z "$SNAPSHOT_LIST_JSON" ]]; then
@@ -292,13 +362,13 @@ fi
 #temporarily commenting out to trying epoch method for identification  and correlation
 #LATEST_SNAPSHOT_ID=$(echo "$SNAPSHOT_LIST_JSON" | jq -r '.snapshots | sort_by(.creationDate) | last .snapshotID')
 
-#if [[ -z "$LATEST_SNAPSHOT_ID" || "$LATEST_SNAPSHOT_ID" == "null" ]]; then
- #   echo "Error: Could not find any snapshots in workspace. Aborting."
-  #  exit 1
-#fi
+if [[ -z "$LATEST_SNAPSHOT_ID" || "$LATEST_SNAPSHOT_ID" == "null" ]]; then
+    echo "Error: Could not find any snapshots in workspace. Aborting."
+    exit 1
+fi
 #end of block
 
-#SOURCE_SNAPSHOT_ID="$LATEST_SNAPSHOT_ID"
+SOURCE_SNAPSHOT_ID="$LATEST_SNAPSHOT_ID"
 
 # trial block
 # Extract timestamp from clone name
@@ -346,6 +416,8 @@ fi
 SOURCE_SNAPSHOT_ID="$BEST_MATCH"
 echo "Matched Snapshot: $SOURCE_SNAPSHOT_ID"
 #tria block end
+END_COMMENT
+
 
 log_print "Stage 2b of 7 Complete: Latest Snapshot ID found: $SOURCE_SNAPSHOT_ID"
 log_print ""
