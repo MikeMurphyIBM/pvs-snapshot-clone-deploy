@@ -7,6 +7,7 @@ log_print() {
     printf "[%s] %s\n" "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$1" >&2
 }
 
+#
 #if [[ "${ENABLE_PRINTING:-yes}" == "yes" ]]; then
 #    log_print() {
 #        printf "[%s] %s\n" "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$1" >&2
@@ -214,16 +215,17 @@ ibmcloud target -g "$RESOURCE_GROP_NAME"      || { echo "ERROR: Failed to target
 ibmcloud pi ws target "$PVS_CRN"              || { echo "ERROR: Failed to target PowerVS workspace $PVS_CRN."; exit 1; }
 
 log_print "Stage 1 of 7 Complete: Successfully authenticated into IBM Cloud"
+log_print echo ""
 
 
 log_print "========================================================="
-log_print "Stage 2 of 7: Perform Snapshot Operation on primary LPAR"
+log_print "Stage 2a of 7: Perform Snapshot Operation on primary LPAR"
 log_print "========================================================="
 log_print ""
 
 SNAPSHOT_NAME="TMP_SNAP_$(date +"%Y%m%d%H%M")"
 
-echo "--- Step 1: Initiating Snapshot on LPAR: $PRIMARY_LPAR ---"
+log_print "--- Step 1: Initiating Snapshot on LPAR: $PRIMARY_LPAR ---"
 echo "Generated Snapshot Name: $SNAPSHOT_NAME"
 
 log_print "Creating Snapshot: $SNAPSHOT_NAME on LPAR: $PRIMARY_LPAR"
@@ -243,14 +245,14 @@ EXPECTED_STATUS="AVAILABLE"
 ERROR_STATUS="ERROR"
 CURRENT_STATUS=""
 
-echo "--- Polling started: Checking snapshot status every ${POLL_INTERVAL} seconds ---"
+log_print "--- Polling started: Checking snapshot status every ${POLL_INTERVAL} seconds ---"
 
 while true; do
     STATUS_JSON=$(ibmcloud pi instance snapshot get "$SNAPSHOT_ID" --json 2>/dev/null)
     CURRENT_STATUS=$(echo "$STATUS_JSON" | jq -r '.status' | tr '[:lower:]' '[:upper:]' | tr -d '[:space:].')
 
     if [[ "$CURRENT_STATUS" == "$EXPECTED_STATUS" ]]; then
-        log_print "Stage 2 of 7 Complete: $SNAPSHOT_ID is now $CURRENT_STATUS. Proceeding to next step."
+        log_print "Stage 2a of 7 Complete: $SNAPSHOT_ID is now $CURRENT_STATUS. Proceeding to next step."
         break
     elif [[ "$CURRENT_STATUS" == "$ERROR_STATUS" ]]; then
         echo "FATAL ERROR: Snapshot failed. Status: $CURRENT_STATUS. Exiting script."
@@ -264,14 +266,14 @@ while true; do
     fi
 done
 
-echo "--- Step 2: Snapshot is available for use ---"
+log_print ""
+log_print "========================================================="
+log_print "Stage 2b of 7: Dynamically Discover the latest Snapshot"
+log_print "========================================================="
+log_print ""
 
-
-# =============================================================
-# SECTION 5: Dynamically Discover the Latest Snapshot ID
-# =============================================================
-
-echo "--- Step 3: Discovering the latest Snapshot ID in the Workspace (Target LPAR: $LPAR_NAME) ---"
+log_print "--- Step 2: Discovering the latest Snapshot ID in the Workspace (Target LPAR: $LPAR_NAME) ---"
+log_print "Snapshot is available for use"
 
 SNAPSHOT_LIST_JSON=$(ibmcloud pi instance snapshot list --json)
 
@@ -334,7 +336,8 @@ SOURCE_SNAPSHOT_ID="$BEST_MATCH"
 echo "Matched Snapshot: $SOURCE_SNAPSHOT_ID"
 #tria block end
 
-echo "Latest Snapshot ID found: $SOURCE_SNAPSHOT_ID"
+log_print "Stage 2b of 7 Complete: Latest Snapshot ID found: $SOURCE_SNAPSHOT_ID"
+log_print ""
 
 
 log_print "========================================================================"
@@ -342,7 +345,7 @@ log_print "Stage 3 of 7: Discover and Classify Source Volume IDs from the Snapsh
 log_print "========================================================================"
 log_print ""
 
-echo "--- Step 4: Discovering Source Volume IDs from Snapshot: $SOURCE_SNAPSHOT_ID ---"
+log_print "--- Discovering Source Volume IDs from Snapshot: $SOURCE_SNAPSHOT_ID ---"
 
 VOLUME_IDS_JSON=$(ibmcloud pi instance snapshot get "$SOURCE_SNAPSHOT_ID" --json)
 
@@ -362,7 +365,7 @@ SOURCE_BOOT_ID=""
 SOURCE_DATA_IDS=""
 BOOT_FOUND=0
 
-echo "All Source Volume IDs found. Checking individual volumes for Load Source designation..."
+log_print "All Source Volume IDs found. Checking individual volumes for Load Source designation..."
 echo "Stage 3 of 7: Classifying Source Boot/Data Volumes from Snapshot"
 
 for VOL_ID in $SOURCE_VOLUME_IDS; do
@@ -374,7 +377,7 @@ for VOL_ID in $SOURCE_VOLUME_IDS; do
         if [[ "$IS_BOOTABLE" == "true" ]]; then
             SOURCE_BOOT_ID="$VOL_ID"
             BOOT_FOUND=1
-            echo "Identified Source Boot Volume ID: $SOURCE_BOOT_ID"
+            log_print "Identified Source Boot Volume ID: $SOURCE_BOOT_ID"
         else
             SOURCE_DATA_IDS="$SOURCE_DATA_IDS,$VOL_ID"
         fi
@@ -393,6 +396,7 @@ fi
 log_print "Source Boot Volume ID: $SOURCE_BOOT_ID"
 log_print "Source Data Volume IDs (CSV): $SOURCE_DATA_IDS"
 log_print "Stage 3 of 7 Complete: Source Boot/Data Volumes Identified"
+log_print ""
 
 echo "--- Step 6: Calculating Total Volume Count ---"
 
@@ -420,7 +424,7 @@ log_print "Stage 4 of 7: Create Volume Clones from the Source Volumes"
 log_print "========================================================================"
 log_print ""
 
-echo "--- Initiating volume cloning of all source volumes ---"
+log_print "--- Initiating volume cloning of all source volumes ---"
 
 COMMA_SEPARATED_IDS=$(echo "$SOURCE_VOLUME_IDS" | tr ' ' ',')
 
@@ -439,7 +443,7 @@ fi
 
 log_print "Clone task initiated. Task ID: $CLONE_TASK_ID"
 
-echo "--- Waiting for asynchronous clone task completion ---"
+log_print "--- Waiting for asynchronous clone task completion ---"
 
 while true; do
     TASK_STATUS=$(ibmcloud pi volume clone-async get "$CLONE_TASK_ID" --json | jq -r '.status')
@@ -456,7 +460,7 @@ while true; do
     fi
 done
 
-echo "--- Step 8: Discovery Retry Loop (Waiting for API Synchronization) ---"
+echo "--- Discovery Retry Loop (Waiting for API Synchronization) ---"
 
 MAX_RETRIES=20
 RETRY_COUNT=0
@@ -466,7 +470,7 @@ NEW_CLONE_IDS=""
 
 while [[ $FOUND_COUNT -ne $EXPECTED_VOLUME_COUNT && $RETRY_COUNT -lt $MAX_RETRIES ]]; do
     RETRY_COUNT=$((RETRY_COUNT + 1))
-    echo "Attempt $RETRY_COUNT of $MAX_RETRIES: Searching for volumes using prefix '$CLONE_NAME_PREFIX'..."
+    log_print "Attempt $RETRY_COUNT of $MAX_RETRIES: Searching for volumes using prefix '$CLONE_NAME_PREFIX'..."
 
     NEW_CLONE_IDS=$(ibmcloud pi volume list --long --json | \
         jq -r ".volumes[] | select(.name | contains(\"$CLONE_NAME_PREFIX\")) | .volumeID")
@@ -494,7 +498,7 @@ log_print "Stage 4 of 7 Complete: Clone Volume(s) successfully created with Volu
 echo "Wait 2 minutes to allow cloned volumes to synchronize with the PVS API"
 sleep 2m
 
-
+log_print ""
 log_print "========================================================================"
 log_print "Stage 5 of 7: Classify the Newly Cloned Volumes (Boot vs. Data)"
 log_print "========================================================================"
@@ -535,6 +539,7 @@ if [[ "$BOOT_FOUND_FLAG" -ne 1 ]]; then
 fi
 
 log_print "Stage 5 of 7 Complete: Target Boot and Data Volumes Successfully Identified"
+log_print ""
 echo "CLONE_BOOT_ID: $CLONE_BOOT_ID"
 echo "CLONE_DATA_IDS (CSV): $CLONE_DATA_IDS"
 
@@ -570,7 +575,7 @@ if [[ $BOOT_EXIT -ne 0 ]]; then
     exit 1
 fi
 
-echo "[SNAP-ATTACH] Boot volume attach accepted — waiting 60 seconds"
+log_print  "Boot volume attach accepted — waiting 60 seconds"
 sleep 60
 
 # STEP 2 — Attach DATA volumes only if available
@@ -584,7 +589,7 @@ if [[ -n "$CLONE_DATA_IDS" ]]; then
         exit 1
     fi
 
-    echo "[SNAP-ATTACH] Data attach accepted — syncing"
+    log_print "[SNAP-ATTACH] Data attach accepted — syncing"
 fi
 
 
@@ -627,7 +632,7 @@ while true; do
     WAITED=$((WAITED+INTERVAL))
 done
 
-
+log_print ""
 log_print "====================================================================="
 log_print "Stage 7 of 7: BOOT IBMi Instance Safely w/Unassisted IPL"
 log_print "====================================================================="
@@ -675,7 +680,7 @@ while true; do
     STATUS=$(ibmcloud pi instance get "$INSTANCE_IDENTIFIER" --json | jq -r '.status')
 
     if [[ "$STATUS" == "ACTIVE" ]]; then
-        echo "SUCCESS — LPAR is ACTIVE"
+        log_print "SUCCESS — LPAR is ACTIVE"
         JOB_SUCCESS=1
         break
     fi
@@ -690,7 +695,7 @@ while true; do
         exit 1
     fi
 
-    echo "LPAR still in state [$STATUS] — sleeping $INTERVAL seconds..."
+    log_print "LPAR still in state [$STATUS] — sleeping $INTERVAL seconds..."
     sleep $INTERVAL
     BOOT_WAITED=$((BOOT_WAITED+INTERVAL))
 done
@@ -705,20 +710,20 @@ FINAL_STATUS=$(ibmcloud pi instance get "$INSTANCE_IDENTIFIER" --json | jq -r '.
 if [[ "$FINAL_STATUS" != "ACTIVE" ]]; then
     echo "WARNING — API readback did not reflect ACTIVE state, verify manually"
 else
-    echo "FINAL VALIDATION — LPAR ACTIVE confirmed from API"
+    log_print "FINAL VALIDATION — LPAR ACTIVE confirmed from API"
 fi
 
 log_print "Stage 7 of 7 Complete: Successfully confirmed LPAR is Active from API readback"
 
 log_print ""
 log_print "--------------------------------------------"
-log_print "Snapshot Restore Summary"
+log_print "****Snapshot Restore Summary****"
 log_print "--------------------------------------------"
-log_print "Snapshot Taken            : Yes"
-log_print "Volumes Cloned            : Yes"
-log_print "Volumes Attached to LPAR  : Yes"
-log_print "LPAR Boot Mode            : NORMAL (Mode A)"
-log_print "LPAR Final Status         : ACTIVE"
+log_print "****Snapshot Taken            : Yes****"
+log_print "****Volumes Cloned            : Yes****"
+log_print "****Volumes Attached to LPAR  : Yes****"
+log_print "****LPAR Boot Mode            : NORMAL (Mode A)****"
+log_print "****LPAR Final Status         : ACTIVE****"
 log_print "--------------------------------------------"
 log_print ""
 
