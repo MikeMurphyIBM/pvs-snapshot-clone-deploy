@@ -716,7 +716,7 @@ echo "--- Evaluating whether to trigger cleanup job ---"
 if [[ "${RUN_CLEANUP_JOB:-No}" == "Yes" ]]; then
     echo "Switching Code Engine context to IBMi project"
 
-    ibmcloud ce project select -n IBMi > /dev/null 2>&1 || {
+    ibmcloud ce project target --name IBMi > /dev/null 2>&1 || {
         echo "ERROR: Unable to select cleanup project IBMi"
         exit 1
     }
