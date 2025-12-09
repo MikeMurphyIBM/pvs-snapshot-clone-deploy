@@ -4,30 +4,58 @@
 # SELECT MODE — only ONE of these should be uncommented
 ########################################################################
 
-MODE="normal"    # Shows everything (recommended for CE runs)
-#MODE="quiet"     # Only log_print messages show
-
+MODE="normal"    # full output but with filtering
+#MODE="quiet"     # only log_print lines appear
 
 ########################################################################
-# QUIET MODE — hides everything except log_print output
+# COMMON TIMESTAMP FUNCTION — used everywhere
+########################################################################
+timestamp() {
+    date +"%Y-%m-%d %H:%M:%S"
+}
+
+########################################################################
+# QUIET MODE — only log_print creates visible output
 ########################################################################
 if [[ "$MODE" == "quiet" ]]; then
-    exec >/dev/null 2>&1
+    QUIET_OUTPUT=$(mktemp)
+    exec >"$QUIET_OUTPUT" 2>&1
+
     log_print() {
-        printf "%s %s\n" "$(date +"%Y-%m-%d %H:%M:%S")" "$1"
+        printf "[%s] %s\n" "$(timestamp)" "$1"
     }
 fi
 
 
 ########################################################################
-# NORMAL MODE — timestamps everything printed (stdout + stderr)
+# NORMAL MODE — timestamp everything EXCEPT sensitive/noisy lines
 ########################################################################
 if [[ "$MODE" == "normal" ]]; then
-    exec > >(tee /proc/1/fd/1 | awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), $0 }') \
-         2> >(tee /proc/1/fd/2 | awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), $0 }')
+    exec > >(awk '
+        # DROP noisy environment blocks
+        /Retrieving API key token/ { next }
+        /IAM access token/         { next }
+        /API endpoint:/            { next }
+        /User:/                    { next }
+        /Region:/                  { next }
+        /Resource group:/          { next }
+        /Account:/                 { next }
+        /Variables loaded successfully/ { next }
+
+        # DROP repeating workspace crn targeting
+        /crn:v1:bluemix:public:power-iaas/ { next }
+
+        # DROP empty separators that repeat many times
+        /^\s*$/ { next }
+
+        # OTHERWISE PRINT WITH TIMESTAMP
+        { print "[" strftime("%Y-%m-%d %H:%M:%S") "]", $0 }
+
+    ' | tee /proc/1/fd/1) \
+    2> >(awk '{ print "[" strftime("%Y-%m-%d %H:%M:%S") "]", $0 }' | tee /proc/1/fd/2)
 
     log_print() {
-        printf "%s\n" "$1"
+        printf "[%s] %s\n" "$(timestamp)" "$1"
     }
 fi
 
