@@ -33,7 +33,7 @@ CLONE_DATA_IDS=""     # Tracks the comma-separated IDs of the dynamically create
 SOURCE_SNAPSHOT_ID="" # Tracks the ID of the discovered source snapshot
 SOURCE_VOLUME_IDS=""  # Tracks the comma-separated IDs of the volumes contained within the snapshot
 CLONE_TASK_ID=""      # Tracks the ID of the asynchronous cloning job
-JOB_SUCCESS=0         # 0 = Failure (Default), 1 = Success (Set at end of script)
+JOB_SUCCESS=""         # 0 = Failure (Default), 1 = Success (Set at end of script)
 
 # =======================================================================
 # SECTION 2A: CLEANUP FUNCTION DEFINITION (The entire cleanup operation)
