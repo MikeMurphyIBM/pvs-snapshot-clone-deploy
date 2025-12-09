@@ -1,6 +1,5 @@
 #!/bin/bash
 
-#!/bin/bash
 
 exec > >(awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), $0 }') \
      2> >(awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), $0 }' >&2)
