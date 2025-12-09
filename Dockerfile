@@ -26,10 +26,10 @@ RUN ibmcloud plugin repo-plugins && \
     ibmcloud plugin install code-engine -f
 
 # Copy script into container
-COPY truncated.sh .
+COPY light-bulb.sh .
 
-RUN chmod +x truncated.sh
+RUN chmod +x light-bulb.sh
 
-CMD ["./truncated.sh"]
+CMD ["./light-bulb.sh"]
 
 
