@@ -1,39 +1,41 @@
 #!/bin/bash
 
+########################################################################
+# SELECT MODE — only ONE of these should be uncommented
+########################################################################
 
-exec > >(awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), $0 }') \
-     2> >(awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), $0 }' >&2)
-
-
-
-##trying epoch and normal 12-08 1:16
-#####################################################
-# MODE 1 — log_print ONLY
-# (quiet execution: NO echo, NO errors, NO command output)
-#####################################################
-
-# Uncomment BOTH lines below to activate this mode:
-#exec >/dev/null 2>&1
-#log_print() {
-#    printf "[%s] %s\n" "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$1"
-#}
+MODE="normal"    # Shows everything (recommended for CE runs)
+#MODE="quiet"     # Only log_print messages show
 
 
-#####################################################
-# MODE 2 — log_print + echo + errors (normal mode)
-#####################################################
+########################################################################
+# QUIET MODE — hides everything except log_print output
+########################################################################
+if [[ "$MODE" == "quiet" ]]; then
+    exec >/dev/null 2>&1
+    log_print() {
+        printf "%s %s\n" "$(date +"%Y-%m-%d %H:%M:%S")" "$1"
+    }
+fi
 
-# >>> LEAVE THESE LINES UNCOMMENTED FOR FULL OUTPUT <<<
-log_print() {
-    printf "%s\n" "$1"
-}
+
+########################################################################
+# NORMAL MODE — timestamps everything printed (stdout + stderr)
+########################################################################
+if [[ "$MODE" == "normal" ]]; then
+    exec > >(tee /proc/1/fd/1 | awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), $0 }') \
+         2> >(tee /proc/1/fd/2 | awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), $0 }')
+
+    log_print() {
+        printf "%s\n" "$1"
+    }
+fi
 
 
 
 
 echo "[SNAP-ATTACH] ==============================="
 echo "[SNAP-ATTACH] Job Started"
-echo "[SNAP-ATTACH] Timestamp: $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 echo "[SNAP-ATTACH] ==============================="
 
 log_print "========================================================================="
