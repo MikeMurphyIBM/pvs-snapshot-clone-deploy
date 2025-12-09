@@ -26,10 +26,10 @@ RUN ibmcloud plugin repo-plugins && \
     ibmcloud plugin install code-engine -f
 
 # Copy script into container
-COPY light-bulb.sh .
+COPY prod-snap.sh .
 
-RUN chmod +x light-bulb.sh
+RUN chmod +x prod-snap.sh
 
-CMD ["./light-bulb.sh"]
+CMD ["./prod-snap.sh"]
 
 
