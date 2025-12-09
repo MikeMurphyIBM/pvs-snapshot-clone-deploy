@@ -1,5 +1,11 @@
 #!/bin/bash
 
+#!/bin/bash
+
+exec > >(awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), $0 }') \
+     2> >(awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), $0 }' >&2)
+
+
 
 ##trying epoch and normal 12-08 1:16
 #####################################################
@@ -20,7 +26,7 @@
 
 # >>> LEAVE THESE LINES UNCOMMENTED FOR FULL OUTPUT <<<
 log_print() {
-    printf "[%s] %s\n" "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$1"
+    printf "%s\n" "$1"
 }
 
 
