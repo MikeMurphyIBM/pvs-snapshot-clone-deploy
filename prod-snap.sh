@@ -202,7 +202,8 @@ ibmcloud login --apikey "$API_KEY" -r "$REGION" || { echo "ERROR: IBM Cloud logi
 ibmcloud target -g "$RESOURCE_GROP_NAME"      || { echo "ERROR: Failed to target resource group."; exit 1; }
 ibmcloud pi ws target "$PVS_CRN"              || { echo "ERROR: Failed to target PowerVS workspace $PVS_CRN."; exit 1; }
 
-echo "Stage 1 of 7 Complete: Successfully authenticated into IBM Cloud"
+echo ""
+echo "--- Stage 1 of 7 Complete: Authenticated into IBM Cloud and Targeted Workspace ---"
 echo ""
 
 
@@ -240,7 +241,7 @@ while true; do
     CURRENT_STATUS=$(echo "$STATUS_JSON" | jq -r '.status' | tr '[:lower:]' '[:upper:]' | tr -d '[:space:].')
 
     if [[ "$CURRENT_STATUS" == "$EXPECTED_STATUS" ]]; then
-        echo "Stage 2a of 7 Complete: $SNAPSHOT_ID is now $CURRENT_STATUS. Proceeding to next step."
+        echo "--- Stage 2a of 7 Complete: $SNAPSHOT_ID is now $CURRENT_STATUS. ---"
         break
     elif [[ "$CURRENT_STATUS" == "$ERROR_STATUS" ]]; then
         echo "FATAL ERROR: Snapshot failed. Status: $CURRENT_STATUS. Exiting script."
@@ -261,7 +262,7 @@ echo "Stage 2b of 7: Dynamically Discover the latest Snapshot"
 echo "========================================================="
 echo ""
 
-echo "--- Discovering the latest matching snapshot ---"
+echo "--- Discovering the latest snapshot performed on $LPAR_NAME ---"
 
 SNAPSHOT_LIST_JSON=$(ibmcloud pi instance snapshot list --json)
 
@@ -292,7 +293,7 @@ echo "Matched Snapshot ID:     $SOURCE_SNAPSHOT_ID"
 echo ""
 
 
-
+echo ""
 echo "Stage 2b of 7 Complete: Latest Snapshot ID found: $SOURCE_SNAPSHOT_ID"
 echo ""
 
