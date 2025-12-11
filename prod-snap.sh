@@ -323,6 +323,7 @@ SOURCE_DATA_IDS=""
 BOOT_FOUND=0
 
 echo "All Source Volume IDs found. Checking individual volumes for Load Source designation..."
+echo ""
 echo "Stage 3 of 7: Classifying Source Boot/Data Volumes from Snapshot"
 
 for VOL_ID in $SOURCE_VOLUME_IDS; do
@@ -506,7 +507,7 @@ echo "Stage 6 of 7: Attach Cloned Volumes to the Empty LPAR"
 echo "========================================================================"
 echo ""
 
-echo "[SNAP-ATTACH] Resolving instance ID (UUID) ..."
+echo "Resolving instance ID (UUID) ..."
 
 INSTANCE_IDENTIFIER=$(ibmcloud pi instance list --json \
     | jq -r ".pvmInstances[] | select(.name == \"$LPAR_NAME\") | .id")
@@ -516,10 +517,10 @@ if [[ -z "$INSTANCE_IDENTIFIER" ]]; then
     exit 1
 fi
 
-echo "[SNAP-ATTACH] Using instance ID: $INSTANCE_IDENTIFIER"
+echo "Using instance ID: $INSTANCE_IDENTIFIER"
 echo ""
-echo "[SNAP-ATTACH] BOOT VOLUME: $CLONE_BOOT_ID"
-echo "[SNAP-ATTACH] DATA VOLUMES: $CLONE_DATA_IDS"
+echo "BOOT VOLUME: $CLONE_BOOT_ID"
+echo "DATA VOLUMES: $CLONE_DATA_IDS"
 echo ""
 
 # STEP 1 — Attach BOOT FIRST
@@ -546,7 +547,7 @@ if [[ -n "$CLONE_DATA_IDS" ]]; then
         exit 1
     fi
 
-    echo "[SNAP-ATTACH] Data attach accepted — syncing"
+    echo "Data attach accepted — syncing"
 fi
 
 
@@ -555,7 +556,7 @@ fi
 # =============================================================
 
 echo ""
-echo "[SNAP-ATTACH] Waiting for volumes to attach..."
+echo "Waiting for volumes to attach..."
 
 MAX_WAIT=420   # 7 minutes
 INTERVAL=15
@@ -584,7 +585,7 @@ while true; do
         exit 22
     fi
 
-    echo "[SNAP-ATTACH] Volumes not fully attached yet — checking again..."
+    echo "Volumes not fully attached yet — checking again..."
     sleep $INTERVAL
     WAITED=$((WAITED+INTERVAL))
 done
@@ -707,7 +708,7 @@ else
 fi
 
 echo "Job #2 Completed Successfully"
-echo "[SNAP-ATTACH] Timestamp: $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+echo "Timestamp: $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
 JOB_SUCCESS=1
 exit 0
