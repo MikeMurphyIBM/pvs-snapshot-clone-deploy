@@ -50,7 +50,7 @@ JOB_SUCCESS=0         # 0 = Failure (Default), 1 = Success (Set at end of script
 
 cleanup_on_failure() {
     # Ensure cleanup executes only once
-    trap - ERR EXIT
+    trap - ERR
 
     if [[ $JOB_SUCCESS -eq 1 ]]; then
         echo "Job finished successfully — no cleanup needed"
@@ -662,6 +662,9 @@ done
 # FINAL CONFIRMATION & OPTIONAL SNAPSHOT-CLEANUP JOB
 # =============================================================
 
+echo "DEBUG: entering final summary section..."
+
+
 FINAL_STATUS=$(ibmcloud pi instance get "$INSTANCE_IDENTIFIER" --json | jq -r '.status')
 
 if [[ "$FINAL_STATUS" != "ACTIVE" ]]; then
@@ -673,15 +676,15 @@ fi
 echo "Stage 7 of 7 Complete: Successfully confirmed LPAR is Active from API readback"
 
 echo ""
-echo "--------------------------------------------"
+echo "============================================"
 echo "****Snapshot Restore Summary****"
-echo "--------------------------------------------"
+echo "============================================"
 echo "****Snapshot Taken            : Yes****"
 echo "****Volumes Cloned            : Yes****"
 echo "****Volumes Attached to LPAR  : Yes****"
 echo "****LPAR Boot Mode            : NORMAL (Mode A)****"
 echo "****LPAR Final Status         : ACTIVE****"
-echo "--------------------------------------------"
+echo "============================================"
 echo ""
 
 echo "--- Evaluating whether to trigger cleanup job ---"
