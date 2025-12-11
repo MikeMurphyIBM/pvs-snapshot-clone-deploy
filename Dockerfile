@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     jq \
     ca-certificates \
     coreutils \
+    moreutils \
  && rm -rf /var/lib/apt/lists/*
 
 # -----------------------------------------------------------
@@ -51,5 +52,5 @@ RUN sed -i 's/\r$//' /prod-snap.sh && chmod +x /prod-snap.sh
 # -----------------------------------------------------------
 # Run the script
 # -----------------------------------------------------------
-CMD ["/prod-snap.sh]()
+CMD /prod-snap.sh | ts '[%Y-%m-%d %H:%M:%S]'
 
