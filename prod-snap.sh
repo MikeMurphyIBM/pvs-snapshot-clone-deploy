@@ -678,7 +678,7 @@ RAW=$(ibmcloud pi instance get "$INSTANCE_IDENTIFIER" --json 2>/dev/null)
 CLI_RC=$?
 STATUS=$(echo "$RAW" | jq -r '.status // empty' 2>/dev/null)
 JQ_RC=$?
-set -e
+
 
 if [[ $CLI_RC -ne 0 ]]; then
     echo "WARNING: IBM Cloud API temporarily unavailable while checking final status."
@@ -727,7 +727,7 @@ else
 fi
 
 echo "Job #2 Completed Successfully"
-echo "Timestamp: $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
 
 JOB_SUCCESS=1
 exit 0
