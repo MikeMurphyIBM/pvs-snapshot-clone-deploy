@@ -1,7 +1,7 @@
 # Use Debian so date & commands behave consistently
 FROM debian:stable-slim
 
-SHELL ["/bin/bash", "-c"]   # <-- REQUIRED for plugin installs + bash scripts
+SHELL ["/bin/bash", "-c"]  
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV HOME=/root
