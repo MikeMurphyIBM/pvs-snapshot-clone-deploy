@@ -213,7 +213,7 @@ echo ""
 
 SNAPSHOT_NAME="murph-$(date +"%Y%m%d%H%M")"
 
-echo "--- Step 1: Initiating Snapshot on LPAR: $PRIMARY_LPAR ---"
+echo "--- Initiating Snapshot on LPAR: $PRIMARY_LPAR ---"
 echo "Generated Snapshot Name: $SNAPSHOT_NAME"
 
 echo "Creating Snapshot: $SNAPSHOT_NAME on LPAR: $PRIMARY_LPAR"
@@ -261,7 +261,7 @@ echo "Stage 2b of 7: Dynamically Discover the latest Snapshot"
 echo "========================================================="
 echo ""
 
-echo "--- Step 2: Discovering the latest matching snapshot ---"
+echo "--- Discovering the latest matching snapshot ---"
 
 SNAPSHOT_LIST_JSON=$(ibmcloud pi instance snapshot list --json)
 
@@ -353,10 +353,9 @@ fi
 
 echo "Source Boot Volume ID: $SOURCE_BOOT_ID"
 echo "Source Data Volume IDs (CSV): $SOURCE_DATA_IDS"
-echo "Stage 3 of 7 Complete: Source Boot/Data Volumes Identified"
 echo ""
 
-echo "--- Step 6: Calculating Total Volume Count ---"
+echo "--- Calculating Total Volume Count ---"
 
 BOOT_COUNT=0
 if [[ -n "$SOURCE_BOOT_ID" ]]; then
@@ -375,6 +374,11 @@ echo "Counted $DATA_COUNT Source Data Volume ID(s)."
 
 EXPECTED_VOLUME_COUNT=$((BOOT_COUNT + DATA_COUNT))
 echo "--- Calculated Total Expected Volume Count: $EXPECTED_VOLUME_COUNT ---"
+echo ""
+
+echo "Stage 3 of 7 Complete: Source Boot/Data Volumes Identified"
+echo ""
+
 
 
 echo "========================================================================"
@@ -453,6 +457,8 @@ fi
 
 echo "Stage 4 of 7 Complete: Clone Volume(s) successfully created with Volume IDs: $NEW_CLONE_IDS"
 
+
+echo""
 echo "Wait 2 minutes to allow cloned volumes to synchronize with the PVS API"
 sleep 2m
 
@@ -462,7 +468,7 @@ echo "Stage 5 of 7: Classify the Newly Cloned Volumes (Boot vs. Data)"
 echo "========================================================================"
 echo ""
 
-echo "--- Step 9: Classifying newly cloned volumes ---"
+echo "--- Classifying newly cloned volumes ---"
 echo "#Action: DESIGNATE BOOT AND DATA VOLUMES by checking the explicit 'bootable' property."
 
 CLONE_BOOT_ID=""
@@ -496,10 +502,12 @@ if [[ "$BOOT_FOUND_FLAG" -ne 1 ]]; then
     exit 1
 fi
 
-echo "Stage 5 of 7 Complete: Target Boot and Data Volumes Successfully Identified"
+
 echo ""
 echo "CLONE_BOOT_ID: $CLONE_BOOT_ID"
 echo "CLONE_DATA_IDS (CSV): $CLONE_DATA_IDS"
+echo "Stage 5 of 7 Complete: Target Boot and Data Volumes Successfully Identified"
+echo ""
 
 
 echo "========================================================================"
