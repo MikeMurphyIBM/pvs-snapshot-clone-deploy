@@ -52,7 +52,8 @@ RUN sed -i 's/\r$//' /prod-snap.sh && chmod +x /prod-snap.sh
 # -----------------------------------------------------------
 # Run the script
 # -----------------------------------------------------------
-CMD ["bash", "-c", "/prod-snap.sh 2>&1 | ts '[%Y-%m-%d %H:%M:%S]'"]
+CMD ["/prod-snap.sh"]
+
 
 #CMD /prod-snap.sh | ts '[%Y-%m-%d %H:%M:%S]'
 
