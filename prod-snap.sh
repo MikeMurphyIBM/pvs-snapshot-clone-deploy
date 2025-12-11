@@ -718,9 +718,9 @@ if [[ "${RUN_CLEANUP_JOB:-No}" == "Yes" ]]; then
         exit 1
     }
 
-    echo "Submitting Code Engine cleanup job: snapshot-cleanup"
+    echo "Submitting Code Engine cleanup job: prod-cleanup"
 
-    NEXT_RUN=$(ibmcloud ce jobrun submit --job snapshot-cleanup --output json | jq -r '.name')
+    NEXT_RUN=$(ibmcloud ce jobrun submit --job prod-cleanup --output json | jq -r '.name')
 
     echo "Triggered cleanup instance: $NEXT_RUN"
 else
