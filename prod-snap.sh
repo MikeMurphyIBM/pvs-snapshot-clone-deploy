@@ -672,8 +672,6 @@ done
 # FINAL CONFIRMATION & OPTIONAL SNAPSHOT-CLEANUP JOB
 # =============================================================
 
-echo "DEBUG: entering final summary section..."
-
 set +e
 RAW=$(ibmcloud pi instance get "$INSTANCE_IDENTIFIER" --json 2>/dev/null)
 CLI_RC=$?
@@ -713,6 +711,7 @@ echo "--- Evaluating whether to trigger cleanup job ---"
 if [[ "${RUN_CLEANUP_JOB:-No}" == "Yes" ]]; then
     echo "Switching Code Engine context to IBMi project"
 
+    # Target CE project
     ibmcloud ce project target --name IBMi > /dev/null 2>&1 || {
         echo "ERROR: Unable to select cleanup project IBMi"
         exit 1
@@ -720,17 +719,31 @@ if [[ "${RUN_CLEANUP_JOB:-No}" == "Yes" ]]; then
 
     echo "Submitting Code Engine cleanup job: prod-cleanup"
 
-    NEXT_RUN=$(ibmcloud ce jobrun submit --job prod-cleanup --output json | jq -r '.name')
+    # Capture full output (stdout + stderr)
+    RAW_CLEANUP_SUBMISSION=$(ibmcloud ce jobrun submit \
+        --job prod-cleanup \
+        --output json 2>&1)
+
+    echo "Cleanup jobrun submission response:"
+    echo "$RAW_CLEANUP_SUBMISSION"
+
+    # Extract jobrun name safely
+    NEXT_RUN=$(echo "$RAW_CLEANUP_SUBMISSION" | jq -r '.name // empty')
+
+    if [[ -z "$NEXT_RUN" ]]; then
+        echo "ERROR: Cleanup job submission returned no jobrun name."
+        exit 1
+    fi
 
     echo "Triggered cleanup instance: $NEXT_RUN"
+
 else
     echo "Skipping cleanup stage; RUN_CLEANUP_JOB is NOT set to Yes."
 fi
 
 echo "Job #2 Completed Successfully"
 
-
 JOB_SUCCESS=1
-
-sleep 1
+sleep 1   # flush timestamped logs
 exit 0
+
