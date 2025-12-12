@@ -70,16 +70,16 @@ cleanup_on_failure() {
     # -------------------------------------------------
     echo "Resolving LPAR instance ID by name..."
 
-    INSTANCE_IDENTIFIER=$(ibmcloud pi instance list --json 2>/dev/null \
+    LPAR_INSTANCE_ID=$(ibmcloud pi instance list --json 2>/dev/null \
         | jq -r --arg N "$LPAR_NAME" '.pvmInstances[]? | select(.name==$N) | .id' \
         | head -n 1)
 
-    if [[ -z "$INSTANCE_IDENTIFIER" || "$INSTANCE_IDENTIFIER" == "null" ]]; then
+    if [[ -z "$LPAR_INSTANCE_ID" || "$LPAR_INSTANCE_ID" == "null" ]]; then
         echo "No LPAR named '$LPAR_NAME' found — skipping cleanup"
         return 0
     fi
 
-    echo "Found LPAR '$LPAR_NAME' (Instance ID: $INSTANCE_IDENTIFIER)"
+    echo "Found LPAR '$LPAR_NAME' (Instance ID: $LPAR_INSTANCE_ID)"
 
     # -------------------------------------------------
     # STEP 2 — Preserve snapshot (by design)
@@ -93,7 +93,7 @@ cleanup_on_failure() {
     # -------------------------------------------------
     echo "Requesting bulk detach of all volumes from instance..."
 
-    ibmcloud pi instance volume bulk-detach "$INSTANCE_IDENTIFIER" \
+    ibmcloud pi instance volume bulk-detach "$LPAR_INSTANCE_ID" \
         --detach-all \
         --detach-primary >/dev/null 2>&1 || true
 
@@ -107,7 +107,7 @@ cleanup_on_failure() {
     sleep "$INITIAL_WAIT"
 
     while true; do
-        ATTACHED=$(ibmcloud pi instance volume list "$INSTANCE_IDENTIFIER" --json 2>/dev/null \
+        ATTACHED=$(ibmcloud pi instance volume list "$LPAR_INSTANCE_ID" --json 2>/dev/null \
             | jq -r '(.volumes // [])[] | .volumeID')
 
         if [[ -z "$ATTACHED" ]]; then
@@ -524,15 +524,15 @@ echo ""
 
 echo "Resolving instance ID (UUID) ..."
 
-INSTANCE_IDENTIFIER=$(ibmcloud pi instance list --json \
+LPAR_INSTANCE_ID=$(ibmcloud pi instance list --json \
     | jq -r ".pvmInstances[] | select(.name == \"$LPAR_NAME\") | .id")
 
-if [[ -z "$INSTANCE_IDENTIFIER" ]]; then
+if [[ -z "$LPAR_INSTANCE_ID" ]]; then
     echo "[FATAL] Instance ID could not be found for $LPAR_NAME"
     exit 1
 fi
 
-echo "Using instance ID: $INSTANCE_IDENTIFIER"
+echo "Using instance ID: $LPAR_INSTANCE_ID"
 echo ""
 echo "BOOT VOLUME: $CLONE_BOOT_ID"
 echo "DATA VOLUMES: $CLONE_DATA_IDS"
@@ -546,7 +546,7 @@ echo ""
 if [[ -n "$CLONE_DATA_IDS" ]]; then
     echo "Data volumes detected — attaching BOOT and DATA together"
 
-    if ! ibmcloud pi instance volume attach "$INSTANCE_IDENTIFIER" \
+    if ! ibmcloud pi instance volume attach "$LPAR_INSTANCE_ID" \
             --volumes "$CLONE_DATA_IDS" \
             --boot-volume "$CLONE_BOOT_ID"; then
         echo "[ERROR] Combined boot+data volume attach failed"
@@ -555,7 +555,7 @@ if [[ -n "$CLONE_DATA_IDS" ]]; then
 else
     echo "No data volumes detected — attaching BOOT volume only"
 
-    if ! ibmcloud pi instance volume attach "$INSTANCE_IDENTIFIER" \
+    if ! ibmcloud pi instance volume attach "$LPAR_INSTANCE_ID" \
             --boot-volume "$CLONE_BOOT_ID"; then
         echo "[ERROR] Boot-only volume attach failed"
         exit 1
@@ -583,7 +583,7 @@ INTERVAL=30         # poll every 30 seconds
 WAITED=0
 
 while true; do
-    VOL_LIST=$(ibmcloud pi instance volume list "$INSTANCE_IDENTIFIER" --json 2>/dev/null \
+    VOL_LIST=$(ibmcloud pi instance volume list "$LPAR_INSTANCE_ID" --json 2>/dev/null \
         | jq -r '(.volumes // []) | .[]? | .volumeID')
 
     BOOT_PRESENT=$(echo "$VOL_LIST" | grep -q "$CLONE_BOOT_ID" && echo yes || echo no)
@@ -625,12 +625,12 @@ echo ""
 
 echo "--- Setting LPAR boot mode and initiating startup ---"
 
-STATUS=$(ibmcloud pi instance get "$INSTANCE_IDENTIFIER" --json | jq -r '.status')
+STATUS=$(ibmcloud pi instance get "$LPAR_INSTANCE_ID" --json | jq -r '.status')
 
 if [[ "$STATUS" != "ACTIVE" ]]; then
     echo "Configuring NORMAL boot mode..."
 
-    ibmcloud pi instance operation "$INSTANCE_IDENTIFIER" \
+    ibmcloud pi instance operation "$LPAR_INSTANCE_ID" \
         --operation-type boot \
         --boot-mode a \
         --boot-operating-mode normal || {
@@ -640,7 +640,7 @@ if [[ "$STATUS" != "ACTIVE" ]]; then
 
     echo "Starting instance..."
 
-    ibmcloud pi instance action "$INSTANCE_IDENTIFIER" --operation start || { 
+    ibmcloud pi instance action "$LPAR_INSTANCE_ID" --operation start || { 
         echo "[FATAL] Failed to initiate LPAR start command. Aborting."
         exit 1 
     }
@@ -662,7 +662,7 @@ BOOT_WAITED=0
 INTERVAL=30
 
 while true; do
-    STATUS=$(ibmcloud pi instance get "$INSTANCE_IDENTIFIER" --json | jq -r '.status')
+    STATUS=$(ibmcloud pi instance get "$LPAR_INSTANCE_ID" --json | jq -r '.status')
 
     if [[ "$STATUS" == "ACTIVE" ]]; then
         echo "SUCCESS — LPAR is ACTIVE"
@@ -691,7 +691,7 @@ done
 # =============================================================
 
 set +e
-RAW=$(ibmcloud pi instance get "$INSTANCE_IDENTIFIER" --json 2>/dev/null)
+RAW=$(ibmcloud pi instance get "$LPAR_INSTANCE_ID" --json 2>/dev/null)
 CLI_RC=$?
 STATUS=$(echo "$RAW" | jq -r '.status // empty' 2>/dev/null)
 JQ_RC=$?
