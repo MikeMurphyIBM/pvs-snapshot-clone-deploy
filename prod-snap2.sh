@@ -49,8 +49,11 @@ JOB_SUCCESS=0         # 0 = Failure (Default), 1 = Success (Set at end of script
 # CLEANUP FUNCTION — NO SNAPSHOT REMOVAL
 # =======================================================================
 
+# =======================================================================
+# CLEANUP FUNCTION — NO SNAPSHOT REMOVAL
+# =======================================================================
+
 cleanup_on_failure() {
-    # Ensure cleanup executes only once
     trap - ERR
 
     if [[ ${JOB_SUCCESS:-0} -eq 1 ]]; then
@@ -65,58 +68,28 @@ cleanup_on_failure() {
     # -------------------------------------------------
     # STEP 1 — Resolve LPAR by NAME → INSTANCE ID
     # -------------------------------------------------
-    echo "Resolving LPAR instance ID by name (authoritative lookup)..."
+    echo "Resolving LPAR instance ID by name..."
 
     INSTANCE_IDENTIFIER=$(ibmcloud pi instance list --json 2>/dev/null \
         | jq -r --arg N "$LPAR_NAME" '.pvmInstances[]? | select(.name==$N) | .id' \
         | head -n 1)
 
     if [[ -z "$INSTANCE_IDENTIFIER" || "$INSTANCE_IDENTIFIER" == "null" ]]; then
-        echo "No LPAR named '$LPAR_NAME' found — skipping shutdown and detach steps."
+        echo "No LPAR named '$LPAR_NAME' found — skipping cleanup"
         return 0
     fi
 
-    echo "Found LPAR '$LPAR_NAME' with instance ID: $INSTANCE_IDENTIFIER"
-
-    STATUS=$(ibmcloud pi instance get "$INSTANCE_IDENTIFIER" --json 2>/dev/null \
-        | jq -r '.status // empty')
-
-    if [[ "$STATUS" != "SHUTOFF" && "$STATUS" != "ERROR" ]]; then
-        echo "LPAR status=$STATUS — attempting shutdown..."
-        ibmcloud pi instance action "$INSTANCE_IDENTIFIER" --operation stop >/dev/null 2>&1 || true
-
-        echo "Waiting for shutdown confirmation (max 2 minutes)..."
-        for ((i=0; i<12; i++)); do
-            STATUS=$(ibmcloud pi instance get "$INSTANCE_IDENTIFIER" --json 2>/dev/null \
-                | jq -r '.status // empty')
-            if [[ "$STATUS" == "SHUTOFF" || "$STATUS" == "ERROR" ]]; then
-                echo "LPAR shutdown confirmed"
-                break
-            fi
-            sleep 10
-        done
-    else
-        echo "LPAR already in $STATUS state — skipping shutdown"
-    fi
+    echo "Found LPAR '$LPAR_NAME' (Instance ID: $INSTANCE_IDENTIFIER)"
 
     # -------------------------------------------------
-    # STEP 2 — Snapshot is PRESERVED
+    # STEP 2 — Preserve snapshot (by design)
     # -------------------------------------------------
     if [[ -n "${SOURCE_SNAPSHOT_ID:-}" ]]; then
-        echo "Snapshot ID [$SOURCE_SNAPSHOT_ID] will NOT be deleted"
-        echo "Snapshot preserved for retry, analysis, or manual deploy"
+        echo "Snapshot ID [$SOURCE_SNAPSHOT_ID] preserved"
     fi
 
     # -------------------------------------------------
-    # STEP 3 — Remove cloned volumes
-    # -------------------------------------------------
-    if [[ -z "${CLONE_BOOT_ID:-}" && -z "${CLONE_DATA_IDS:-}" ]]; then
-        echo "No cloned volumes exist — cleanup complete"
-        return 0
-    fi
-
-    # -------------------------------------------------
-    # STEP 3a — BULK DETACH (INSTANCE ID ONLY)
+    # STEP 3 — Bulk detach ALL volumes (instance-based)
     # -------------------------------------------------
     echo "Requesting bulk detach of all volumes from instance..."
 
@@ -124,7 +97,7 @@ cleanup_on_failure() {
         --detach-all \
         --detach-primary >/dev/null 2>&1 || true
 
-    echo "Waiting up to 4 minutes for all volumes to detach..."
+    echo "Waiting up to 4 minutes for detachment..."
 
     INITIAL_WAIT=30
     POLL_INTERVAL=30
@@ -142,22 +115,19 @@ cleanup_on_failure() {
             break
         fi
 
-        echo "Still attached volumes:"
-        echo "$ATTACHED"
-
         if [[ $WAITED -ge $MAX_WAIT ]]; then
-            echo "[WARNING] Volumes still appear attached after $MAX_WAIT seconds"
-            echo "[WARNING] Continuing with deletion attempts"
+            echo "[WARNING] Volumes still appear attached after ${MAX_WAIT}s"
+            echo "[WARNING] Proceeding with deletion anyway"
             break
         fi
 
-        echo "Volumes still attached — checking again in ${POLL_INTERVAL}s"
+        echo "Volumes still attached — retrying in ${POLL_INTERVAL}s"
         sleep "$POLL_INTERVAL"
         WAITED=$((WAITED + POLL_INTERVAL))
     done
 
     # -------------------------------------------------
-    # STEP 3b — DELETE CLONED VOLUMES
+    # STEP 4 — Bulk delete cloned volumes (ID-based)
     # -------------------------------------------------
     echo "Deleting cloned volumes..."
 
@@ -169,22 +139,23 @@ cleanup_on_failure() {
             --volumes "${CLONE_BOOT_ID}" >/dev/null 2>&1 || true
     fi
 
+    # -------------------------------------------------
+    # STEP 5 — Verify deletion
+    # -------------------------------------------------
     echo "Verifying volume removal..."
 
-    # Verify boot volume
     if ibmcloud pi volume get "$CLONE_BOOT_ID" --json >/dev/null 2>&1; then
-        echo "[WARNING] IBM API still reports volume [$CLONE_BOOT_ID] exists — manual review required"
+        echo "[WARNING] Boot volume [$CLONE_BOOT_ID] still exists — manual review required"
     else
-        echo "Volume [$CLONE_BOOT_ID] deleted"
+        echo "Boot volume [$CLONE_BOOT_ID] deleted"
     fi
 
-    # Verify data volumes
     if [[ -n "$CLONE_DATA_IDS" ]]; then
         for VOL in ${CLONE_DATA_IDS//,/ }; do
             if ibmcloud pi volume get "$VOL" --json >/dev/null 2>&1; then
-                echo "[WARNING] IBM API still reports volume [$VOL] exists — manual review required"
+                echo "[WARNING] Data volume [$VOL] still exists — manual review required"
             else
-                echo "Volume [$VOL] deleted"
+                echo "Data volume [$VOL] deleted"
             fi
         done
     fi
