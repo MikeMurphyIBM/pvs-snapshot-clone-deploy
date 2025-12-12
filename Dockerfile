@@ -44,16 +44,15 @@ RUN ibmcloud plugin install code-engine -f
 # -----------------------------------------------------------
 # Copy script into container
 # -----------------------------------------------------------
-COPY prod-snap.sh /prod-snap.sh
+COPY prod-snap2.sh /prod-snap2.sh
 
 # Normalize line endings + ensure script is executable
-RUN sed -i 's/\r$//' /prod-snap.sh && chmod +x /prod-snap.sh
+RUN sed -i 's/\r$//' /prod-snap2.sh && chmod +x /prod-snap2.sh
 
 # -----------------------------------------------------------
 # Run the script
 # -----------------------------------------------------------
-CMD ["/prod-snap.sh"]
+CMD ["/prod-snap2.sh"]
 
 
-#CMD /prod-snap.sh | ts '[%Y-%m-%d %H:%M:%S]'
 
