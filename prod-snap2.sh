@@ -44,6 +44,7 @@ CLONE_TASK_ID=""      # Tracks the ID of the asynchronous cloning job
 JOB_SUCCESS=0         # 0 = Failure (Default), 1 = Success (Set at end of script)
 
 
+
 # =======================================================================
 # CLEANUP FUNCTION — NO SNAPSHOT REMOVAL
 # =======================================================================
@@ -52,113 +53,147 @@ cleanup_on_failure() {
     # Ensure cleanup executes only once
     trap - ERR
 
-    if [[ $JOB_SUCCESS -eq 1 ]]; then
+    if [[ ${JOB_SUCCESS:-0} -eq 1 ]]; then
         echo "Job finished successfully — no cleanup needed"
         return 0
     fi
 
     echo ""
     echo " FAILURE DETECTED — BEGINNING SAFE CLEANUP OPERATIONS"
+    echo ""
 
-    #
-    # STEP 1 — Shutdown LPAR safely IF it exists
-    #
-    echo "Checking whether LPAR exists..."
-    LPAR_JSON=$(ibmcloud pi instance get "$LPAR_NAME" --json 2>/dev/null || true)
-    LPAR_EXISTS=$(echo "$LPAR_JSON" | jq -r '.pvmInstanceID // empty')
+    # -------------------------------------------------
+    # STEP 1 — Resolve LPAR by NAME → INSTANCE ID
+    # -------------------------------------------------
+    echo "Resolving LPAR instance ID by name (authoritative lookup)..."
 
-    if [[ -n "$LPAR_EXISTS" ]]; then
-        STATUS=$(echo "$LPAR_JSON" | jq -r '.status')
-        echo " Found active LPAR ($LPAR_NAME) with status=$STATUS"
+    INSTANCE_IDENTIFIER=$(ibmcloud pi instance list --json 2>/dev/null \
+        | jq -r --arg N "$LPAR_NAME" '.pvmInstances[]? | select(.name==$N) | .id' \
+        | head -n 1)
 
-        if [[ "$STATUS" != "SHUTOFF" ]]; then
-            echo "Attempting shutdown..."
-            ibmcloud pi instance action "$LPAR_NAME" --operation stop >/dev/null 2>&1 || true
-        fi
+    if [[ -z "$INSTANCE_IDENTIFIER" || "$INSTANCE_IDENTIFIER" == "null" ]]; then
+        echo "No LPAR named '$LPAR_NAME' found — skipping shutdown and detach steps."
+        return 0
+    fi
 
-        echo "Waiting for shutdown confirmation (max 2 minutes)"
+    echo "Found LPAR '$LPAR_NAME' with instance ID: $INSTANCE_IDENTIFIER"
+
+    STATUS=$(ibmcloud pi instance get "$INSTANCE_IDENTIFIER" --json 2>/dev/null \
+        | jq -r '.status // empty')
+
+    if [[ "$STATUS" != "SHUTOFF" && "$STATUS" != "ERROR" ]]; then
+        echo "LPAR status=$STATUS — attempting shutdown..."
+        ibmcloud pi instance action "$INSTANCE_IDENTIFIER" --operation stop >/dev/null 2>&1 || true
+
+        echo "Waiting for shutdown confirmation (max 2 minutes)..."
         for ((i=0; i<12; i++)); do
-            STATUS=$(ibmcloud pi instance get "$LPAR_NAME" --json 2>/dev/null | jq -r '.status' || true)
+            STATUS=$(ibmcloud pi instance get "$INSTANCE_IDENTIFIER" --json 2>/dev/null \
+                | jq -r '.status // empty')
             if [[ "$STATUS" == "SHUTOFF" || "$STATUS" == "ERROR" ]]; then
-                echo " LPAR shutdown confirmed"
+                echo "LPAR shutdown confirmed"
                 break
             fi
             sleep 10
         done
     else
-        echo "No active LPAR found — skipping shutdown"
+        echo "LPAR already in $STATUS state — skipping shutdown"
     fi
 
-    #
-    # STEP 2 — NEVER DELETE SNAPSHOT (for this job)
-    #
-    if [[ -n "$SOURCE_SNAPSHOT_ID" ]]; then
+    # -------------------------------------------------
+    # STEP 2 — Snapshot is PRESERVED
+    # -------------------------------------------------
+    if [[ -n "${SOURCE_SNAPSHOT_ID:-}" ]]; then
         echo "Snapshot ID [$SOURCE_SNAPSHOT_ID] will NOT be deleted"
         echo "Snapshot preserved for retry, analysis, or manual deploy"
     fi
 
-    #
+    # -------------------------------------------------
     # STEP 3 — Remove cloned volumes
-    #
-    if [[ -z "$CLONE_BOOT_ID" && -z "$CLONE_DATA_IDS" ]]; then
+    # -------------------------------------------------
+    if [[ -z "${CLONE_BOOT_ID:-}" && -z "${CLONE_DATA_IDS:-}" ]]; then
         echo "No cloned volumes exist — cleanup complete"
         return 0
     fi
 
-    DELETE_LIST="$CLONE_BOOT_ID"
-    [[ -n "$CLONE_DATA_IDS" ]] && DELETE_LIST="$DELETE_LIST,$CLONE_DATA_IDS"
+    # -------------------------------------------------
+    # STEP 3a — BULK DETACH (INSTANCE ID ONLY)
+    # -------------------------------------------------
+    echo "Requesting bulk detach of all volumes from instance..."
 
-    # Cleanup formatting
-    DELETE_LIST=$(echo "$DELETE_LIST" | sed 's/,,/,/g; s/^,//; s/,$//')
+    ibmcloud pi instance volume bulk-detach "$INSTANCE_IDENTIFIER" \
+        --detach-all \
+        --detach-primary >/dev/null 2>&1 || true
 
-    echo " Marked cloned volumes for removal:"
-    echo "          $DELETE_LIST"
+    echo "Waiting up to 4 minutes for all volumes to detach..."
 
-    #
-    # STEP 3a — Detach volumes if needed
-    #
-    echo " Requesting bulk-detach..."
-    ibmcloud pi instance volume bulk-detach "$LPAR_NAME" --volumes "$DELETE_LIST" >/dev/null 2>&1 || true
+    INITIAL_WAIT=30
+    POLL_INTERVAL=30
+    MAX_WAIT=240
+    WAITED=$INITIAL_WAIT
 
-    echo " Waiting up to 5 minutes for detachment..."
-    for ((i=0; i<20; i++)); do
-        ATTACHED=$(ibmcloud pi instance volume list "$LPAR_NAME" --json 2>/dev/null | jq -r '.volumes[].volumeID' || true)
+    sleep "$INITIAL_WAIT"
 
-        STILL_PRESENT=false
-        for VOL in ${DELETE_LIST//,/ }; do
-            if echo "$ATTACHED" | grep -q "$VOL"; then
-                STILL_PRESENT=true
-            fi
-        done
+    while true; do
+        ATTACHED=$(ibmcloud pi instance volume list "$INSTANCE_IDENTIFIER" --json 2>/dev/null \
+            | jq -r '(.volumes // [])[] | .volumeID')
 
-        if [[ "$STILL_PRESENT" == false ]]; then
-            echo " All volumes detached"
+        if [[ -z "$ATTACHED" ]]; then
+            echo "All volumes detached from instance"
             break
         fi
 
-        sleep 15
-    done
+        echo "Still attached volumes:"
+        echo "$ATTACHED"
 
-    #
-    # STEP 3b — DELETE permanently
-    #
-    echo " Deleting cloned volumes..."
-    ibmcloud pi volume bulk-delete --volumes "$DELETE_LIST" >/dev/null 2>&1 || true
-
-    echo " Verifying volume removal..."
-    for VOL in ${DELETE_LIST//,/ }; do
-        CHECK=$(ibmcloud pi volume get "$VOL" --json 2>/dev/null || true)
-        if [[ "$CHECK" == "" || "$CHECK" == "null" ]]; then
-            echo " Volume [$VOL] deleted"
-        else
-            echo "[WARNING] IBM API still reports volume [$VOL] exists — will require manual review"
+        if [[ $WAITED -ge $MAX_WAIT ]]; then
+            echo "[WARNING] Volumes still appear attached after $MAX_WAIT seconds"
+            echo "[WARNING] Continuing with deletion attempts"
+            break
         fi
+
+        echo "Volumes still attached — checking again in ${POLL_INTERVAL}s"
+        sleep "$POLL_INTERVAL"
+        WAITED=$((WAITED + POLL_INTERVAL))
     done
+
+    # -------------------------------------------------
+    # STEP 3b — DELETE CLONED VOLUMES
+    # -------------------------------------------------
+    echo "Deleting cloned volumes..."
+
+    if [[ -n "$CLONE_DATA_IDS" ]]; then
+        ibmcloud pi volume bulk-delete \
+            --volumes "${CLONE_BOOT_ID},${CLONE_DATA_IDS}" >/dev/null 2>&1 || true
+    else
+        ibmcloud pi volume bulk-delete \
+            --volumes "${CLONE_BOOT_ID}" >/dev/null 2>&1 || true
+    fi
+
+    echo "Verifying volume removal..."
+
+    # Verify boot volume
+    if ibmcloud pi volume get "$CLONE_BOOT_ID" --json >/dev/null 2>&1; then
+        echo "[WARNING] IBM API still reports volume [$CLONE_BOOT_ID] exists — manual review required"
+    else
+        echo "Volume [$CLONE_BOOT_ID] deleted"
+    fi
+
+    # Verify data volumes
+    if [[ -n "$CLONE_DATA_IDS" ]]; then
+        for VOL in ${CLONE_DATA_IDS//,/ }; do
+            if ibmcloud pi volume get "$VOL" --json >/dev/null 2>&1; then
+                echo "[WARNING] IBM API still reports volume [$VOL] exists — manual review required"
+            else
+                echo "Volume [$VOL] deleted"
+            fi
+        done
+    fi
 
     echo ""
     echo "==================== CLEANUP COMPLETE ===================="
     echo ""
 }
+
 
 
 # =============================================================
