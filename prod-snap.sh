@@ -706,6 +706,7 @@ echo "****LPAR Final Status         : ACTIVE****"
 echo "============================================"
 echo ""
 
+
 echo "--- Evaluating whether to trigger cleanup job ---"
 
 if [[ "${RUN_CLEANUP_JOB:-No}" == "Yes" ]]; then
@@ -719,12 +720,12 @@ if [[ "${RUN_CLEANUP_JOB:-No}" == "Yes" ]]; then
 
     echo "Submitting Code Engine cleanup job: prod-cleanup"
 
-    # Capture ALL output (stdout + stderr)
+    # Capture stdout + stderr (CLI may mix them)
     RAW_SUBMISSION=$(ibmcloud ce jobrun submit \
         --job prod-cleanup \
         --output json 2>&1)
 
-    # Extract ONLY the jobrun name (robust to CLI variations)
+    # Extract jobrun name (works across CLI versions)
     NEXT_RUN=$(echo "$RAW_SUBMISSION" | jq -r '.metadata.name // .name // empty')
 
     if [[ -z "$NEXT_RUN" ]]; then
@@ -743,19 +744,5 @@ fi
 echo "Job #2 Completed Successfully"
 
 JOB_SUCCESS=1
-
-# Optional: Follow logs of the next job
-if [[ -n "${NEXT_RUN:-}" ]]; then
-    echo "Attempting to stream logs for next jobrun: $NEXT_RUN"
-    echo "(Non-blocking / best-effort — failure is ignored)"
-
-    (
-        set +e
-        ibmcloud ce jobrun logs -f -n "$NEXT_RUN" || true
-    )
-fi
-
 sleep 1
 exit 0
-
-
