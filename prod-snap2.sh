@@ -49,9 +49,6 @@ JOB_SUCCESS=0         # 0 = Failure (Default), 1 = Success (Set at end of script
 # CLEANUP FUNCTION — NO SNAPSHOT REMOVAL
 # =======================================================================
 
-# =======================================================================
-# CLEANUP FUNCTION — NO SNAPSHOT REMOVAL
-# =======================================================================
 
 cleanup_on_failure() {
     trap - ERR
