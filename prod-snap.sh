@@ -234,7 +234,8 @@ EXPECTED_STATUS="AVAILABLE"
 ERROR_STATUS="ERROR"
 CURRENT_STATUS=""
 
-echo "--- Polling started: Checking snapshot status every ${POLL_INTERVAL} seconds ---"
+echo "--- Polling started: first check is immediate, then sleeping ${POLL_INTERVAL}s between checks ---"
+
 
 while true; do
     STATUS_JSON=$(ibmcloud pi instance snapshot get "$SNAPSHOT_ID" --json 2>/dev/null)
@@ -532,6 +533,8 @@ echo "BOOT VOLUME: $CLONE_BOOT_ID"
 echo "DATA VOLUMES: $CLONE_DATA_IDS"
 echo ""
 
+
+##### the blow below WORKS, trying a command to attach at the same time
 # STEP 1 — Attach BOOT FIRST
 echo "Attaching BOOT volume first..."
 ibmcloud pi instance volume attach "$INSTANCE_IDENTIFIER" --volumes "$CLONE_BOOT_ID"
@@ -545,7 +548,7 @@ fi
 echo  "Boot volume attach accepted — waiting 60 seconds"
 sleep 60
 
-# STEP 2 — Attach DATA volumes only if available
+ STEP 2 — Attach DATA volumes only if available
 if [[ -n "$CLONE_DATA_IDS" ]]; then
     echo "Attaching DATA volumes..."
     ibmcloud pi instance volume attach "$INSTANCE_IDENTIFIER" --volumes "$CLONE_DATA_IDS"
