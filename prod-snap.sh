@@ -720,18 +720,15 @@ if [[ "${RUN_CLEANUP_JOB:-No}" == "Yes" ]]; then
     echo "Submitting Code Engine cleanup job: prod-cleanup"
 
     # Capture full output (stdout + stderr)
-    RAW_CLEANUP_SUBMISSION=$(ibmcloud ce jobrun submit \
-        --job prod-cleanup \
-        --output json 2>&1)
+    RAW_SUBMISSION=$(ibmcloud ce jobrun submit --job prod-cleanup --output json 2>&1)
 
-    echo "Cleanup jobrun submission response:"
-    echo "$RAW_CLEANUP_SUBMISSION"
-
-    # Extract jobrun name safely
-    NEXT_RUN=$(echo "$RAW_CLEANUP_SUBMISSION" | jq -r '.name // empty')
+    # Extract only the jobrun name safely
+    NEXT_RUN=$(echo "$RAW_SUBMISSION" | jq -r '.metadata.name // .name // empty')
 
     if [[ -z "$NEXT_RUN" ]]; then
-        echo "ERROR: Cleanup job submission returned no jobrun name."
+        echo "ERROR: Job submission returned no jobrun name."
+        echo "Raw submission output:"
+        echo "$RAW_SUBMISSION"
         exit 1
     fi
 
