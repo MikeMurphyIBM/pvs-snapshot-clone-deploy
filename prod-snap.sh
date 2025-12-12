@@ -711,7 +711,7 @@ echo "--- Evaluating whether to trigger cleanup job ---"
 if [[ "${RUN_CLEANUP_JOB:-No}" == "Yes" ]]; then
     echo "Switching Code Engine context to IBMi project"
 
-    # Target CE project
+    # Target Code Engine project
     ibmcloud ce project target --name IBMi > /dev/null 2>&1 || {
         echo "ERROR: Unable to select cleanup project IBMi"
         exit 1
@@ -719,10 +719,12 @@ if [[ "${RUN_CLEANUP_JOB:-No}" == "Yes" ]]; then
 
     echo "Submitting Code Engine cleanup job: prod-cleanup"
 
-    # Capture full output (stdout + stderr)
-    RAW_SUBMISSION=$(ibmcloud ce jobrun submit --job prod-cleanup --output json 2>&1)
+    # Capture ALL output (stdout + stderr)
+    RAW_SUBMISSION=$(ibmcloud ce jobrun submit \
+        --job prod-cleanup \
+        --output json 2>&1)
 
-    # Extract only the jobrun name safely
+    # Extract ONLY the jobrun name (robust to CLI variations)
     NEXT_RUN=$(echo "$RAW_SUBMISSION" | jq -r '.metadata.name // .name // empty')
 
     if [[ -z "$NEXT_RUN" ]]; then
@@ -741,6 +743,19 @@ fi
 echo "Job #2 Completed Successfully"
 
 JOB_SUCCESS=1
-sleep 1   # flush timestamped logs
+
+# Optional: Follow logs of the next job
+if [[ -n "${NEXT_RUN:-}" ]]; then
+    echo "Attempting to stream logs for next jobrun: $NEXT_RUN"
+    echo "(Non-blocking / best-effort — failure is ignored)"
+
+    (
+        set +e
+        ibmcloud ce jobrun logs -f -n "$NEXT_RUN" || true
+    )
+fi
+
+sleep 1
 exit 0
+
 
