@@ -26,11 +26,11 @@ REGION="us-south"                # IBM Cloud Region
 RESOURCE_GROP_NAME="Default"     # Targeted Resource Group
 PVS_CRN="crn:v1:bluemix:public:power-iaas:dal10:a/21d74dd4fe814dfca20570bbb93cdbff:cc84ef2f-babc-439f-8594-571ecfcbe57a::" # Full PowerVS Workspace CRN
 CLOUD_INSTANCE_ID="cc84ef2f-babc-439f-8594-571ecfcbe57a" # PowerVS Workspace ID
-LPAR_NAME="empty-ibmi-lpar"      # Name of the target LPAR
+LPAR_NAME="manhattan"      # Name of the target LPAR
 PRIMARY_LPAR="get-snapshot"      # Name of the source LPAR for snapshot
 PRIMARY_INSTANCE_ID="c92f6904-8bd2-4093-acec-f641899cd658"  # Primary LPAR Instance ID
 STORAGE_TIER="tier3"             # Must match the storage tier of the original volumes in the snapshot.
-CLONE_NAME_PREFIX="murph-$(date +"%Y%m%d%H%M")"  # Unique prefix for the new cloned volumes, excluding seconds (%S)
+CLONE_NAME_PREFIX="murph-$(date +"%Y%m%d%H%M%S")"  # Unique prefix for the new cloned volumes, excluding seconds (%S)
 
 # -------------------------
 # 1B. Dynamic Control Variables (Initialized for Cleanup Tracking)
