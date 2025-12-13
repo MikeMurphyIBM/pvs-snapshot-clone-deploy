@@ -301,6 +301,8 @@ echo ""
 echo "Stage 2b of 7 Complete: Latest Snapshot ID found: $SOURCE_SNAPSHOT_ID"
 echo ""
 
+sleep 2m
+
 
 echo "========================================================================"
 echo "Stage 3 of 7: Discover and Classify Source Volume IDs from the Snapshot"
